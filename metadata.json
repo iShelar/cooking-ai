@@ -1,0 +1,8 @@
+{
+  "name": "CookAI Assistant",
+  "description": "A real-time AI cooking companion that provides voice-guided step-by-step instructions, ingredient scanning, and hands-free assistance.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
