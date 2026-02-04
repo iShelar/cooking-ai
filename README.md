@@ -16,5 +16,8 @@ View your app in AI Studio: https://ai.studio/apps/drive/1q4PwPz4BX_IElsBhDK1tst
 1. Install dependencies:
    `npm install`
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+3. **Firestore (recipes):** In [Firebase Console](https://console.firebase.google.com) → your project → **Build** → **Firestore Database**:
+   - Click **Create database** if you haven’t already (start in test mode).
+   - Open the **Rules** tab and paste the contents of [firestore.rules](firestore.rules), then **Publish**. This allows the app to read/write the `recipes` collection.
+4. Run the app:
    `npm run dev`

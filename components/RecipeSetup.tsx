@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Recipe } from '../types';
+import { Recipe, AppSettings, DEFAULT_APP_SETTINGS, VOICE_LANGUAGE_OPTIONS } from '../types';
 import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration } from '@google/genai';
 import { decode, encode, decodeAudioData } from '../services/geminiService';
 import { updateRecipeInDB } from '../services/dbService';
@@ -9,13 +9,28 @@ interface RecipeSetupProps {
   recipe: Recipe;
   onComplete: (scaledRecipe: Recipe) => void;
   onCancel: () => void;
+  appSettings?: AppSettings | null;
+  userId: string;
 }
 
-const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel }) => {
+const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel, appSettings: settings, userId }) => {
+  const appSettings = settings ?? DEFAULT_APP_SETTINGS;
+  const initialServings = appSettings.defaultServings ?? recipe.servings;
   const [isListening, setIsListening] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [currentServings, setCurrentServings] = useState(recipe.servings);
-  const [scaledIngredients, setScaledIngredients] = useState<string[]>(recipe.ingredients);
+  const [currentServings, setCurrentServings] = useState(initialServings);
+  const scaleIngredientsToServings = (servings: number) => {
+    const ratio = servings / recipe.servings;
+    return recipe.ingredients.map((ing) =>
+      ing.replace(/(\d+(\.\d+)?)/g, (match) => {
+        const val = parseFloat(match);
+        return (val * ratio).toFixed(1).replace(/\.0$/, '');
+      })
+    );
+  };
+  const [scaledIngredients, setScaledIngredients] = useState<string[]>(() =>
+    initialServings === recipe.servings ? recipe.ingredients : scaleIngredientsToServings(initialServings)
+  );
   const [aiText, setAiText] = useState("Tap to start voice setup...");
   const [inputVolume, setInputVolume] = useState(0);
   const [isAssistantSpeaking, setIsAssistantSpeaking] = useState(false);
@@ -27,6 +42,20 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel 
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const sessionRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  // When leaving setup (e.g. cancel) without turning off the assistant, stop voice recording.
+  useEffect(() => {
+    return () => {
+      if (sessionRef.current) {
+        sessionRef.current.close();
+        sessionRef.current = null;
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+    };
+  }, []);
 
   const stopAudio = useCallback(() => {
     sourcesRef.current.forEach(source => source.stop());
@@ -82,13 +111,14 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel 
       const buffer = await decodeAudioData(decode(audioData), ctx, 24000, 1);
       const source = ctx.createBufferSource();
       source.buffer = buffer;
+      source.playbackRate.value = appSettings.voiceSpeed;
       source.connect(ctx.destination);
       source.addEventListener('ended', () => { 
         sourcesRef.current.delete(source);
         if (sourcesRef.current.size === 0) setIsAssistantSpeaking(false);
       });
       source.start(nextStartTimeRef.current);
-      nextStartTimeRef.current += buffer.duration;
+      nextStartTimeRef.current += buffer.duration / appSettings.voiceSpeed;
       sourcesRef.current.add(source);
     }
 
@@ -107,7 +137,7 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel 
       setAiText(message.serverContent.outputTranscription.text);
     }
     if (message.serverContent?.interrupted) stopAudio();
-  }, [triggerUpdateRecipe, stopAudio]);
+  }, [appSettings.voiceSpeed, triggerUpdateRecipe, stopAudio]);
 
   const toggleAssistant = async () => {
     if (isListening || isConnecting) {
@@ -192,6 +222,8 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel 
           systemInstruction: `You are the CookAI Setup Assistant. 
           The recipe is: ${recipe.title}, originally for ${recipe.servings} people.
           
+          LANGUAGE: Always respond and speak only in ${VOICE_LANGUAGE_OPTIONS.find((o) => o.code === appSettings.voiceLanguage)?.label ?? 'English'}. Use no other language.
+          
           PHASE 1 (GREETING): Greet fast. Ask how many people.
           PHASE 2 (SCALING): As soon as they give a number, calculate new quantities and call 'updateRecipeQuantities'.
           
@@ -219,7 +251,7 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel 
     };
     
     try {
-      await updateRecipeInDB(updatedRecipe);
+      await updateRecipeInDB(userId, updatedRecipe);
       onComplete(updatedRecipe);
     } catch (err) {
       console.error("SQLite update failed", err);

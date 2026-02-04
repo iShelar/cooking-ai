@@ -1,15 +1,28 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Recipe } from '../types';
+import { Recipe, AppSettings, DEFAULT_APP_SETTINGS, VOICE_LANGUAGE_OPTIONS } from '../types';
 import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration } from '@google/genai';
 import { decode, encode, decodeAudioData } from '../services/geminiService';
 
 interface CookingModeProps {
   recipe: Recipe;
   onExit: () => void;
+  appSettings?: AppSettings | null;
 }
 
-const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit }) => {
+const celsiusToFahrenheit = (c: number) => Math.round(c * (9 / 5) + 32);
+const formatTempForDisplay = (suggestion: string, units: 'metric' | 'imperial'): string => {
+  if (units !== 'imperial') return suggestion;
+  const match = suggestion.match(/^(\d+)/);
+  if (match) {
+    const f = celsiusToFahrenheit(Number(match[1]));
+    return `${f}°F`;
+  }
+  return suggestion;
+};
+
+const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: settings }) => {
+  const appSettings = settings ?? DEFAULT_APP_SETTINGS;
   const [currentStep, setCurrentStep] = useState(0);
   const [isListening, setIsListening] = useState(false);
   const [aiResponse, setAiResponse] = useState('');
@@ -18,7 +31,6 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit }) => {
   const [activeTemperature, setActiveTemperature] = useState<string>('Off');
   const [suggestedTemp, setSuggestedTemp] = useState<string>('');
   const [toolNotification, setToolNotification] = useState<string | null>(null);
-  const [showFinishedOverlay, setShowFinishedOverlay] = useState(false);
   const [isAssistantSpeaking, setIsAssistantSpeaking] = useState(false);
   const [inputVolume, setInputVolume] = useState(0);
 
@@ -29,8 +41,35 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit }) => {
   const sessionRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerIntervalRef = useRef<number | null>(null);
+  const timerDoneNotifiedRef = useRef(false);
+  const currentStepRef = useRef(0);
 
   const stepsCount = recipe.steps.length;
+
+  // Keep ref in sync so callbacks/effects see latest step (e.g. after manual navigation).
+  useEffect(() => {
+    currentStepRef.current = currentStep;
+  }, [currentStep]);
+
+  // When leaving cooking mode (e.g. back button) without turning off the assistant, stop voice recording.
+  useEffect(() => {
+    return () => {
+      if (sessionRef.current) {
+        sessionRef.current.close();
+        sessionRef.current = null;
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+    };
+  }, []);
+
+  const getCurrentStepContext = useCallback((stepIndex: number) => {
+    const oneBased = stepIndex + 1;
+    const instruction = recipe.steps[stepIndex] ?? '';
+    return `[Context: The user is currently viewing Step ${oneBased} of ${stepsCount}. Current step instruction: "${instruction}". When they ask what to do here or refer to "this step", describe Step ${oneBased}.]`;
+  }, [recipe.steps, stepsCount]);
 
   const playConfirmationSound = useCallback(() => {
     if (!audioContextRef.current) return;
@@ -56,30 +95,56 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit }) => {
   const notify = (msg: string, silent = false) => {
     setToolNotification(msg);
     if (!silent) playConfirmationSound();
+    if (appSettings.hapticFeedback && typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(50);
+    }
     setTimeout(() => setToolNotification(null), 2000);
   };
 
+  const syncStepContextToAssistant = useCallback((stepIndex: number) => {
+    if (sessionRef.current && isListening) {
+      sessionRef.current.sendClientContent({
+        turns: getCurrentStepContext(stepIndex),
+        turnComplete: false
+      });
+    }
+  }, [isListening, getCurrentStepContext]);
+
   const triggerNextStep = useCallback(() => {
-    setCurrentStep(prev => Math.min(prev + 1, stepsCount - 1));
+    const prev = currentStepRef.current;
+    const newStep = Math.min(prev + 1, stepsCount - 1);
+    currentStepRef.current = newStep;
+    setCurrentStep(newStep);
     notify("Next step");
-  }, [stepsCount, playConfirmationSound]);
+    syncStepContextToAssistant(newStep);
+  }, [stepsCount, playConfirmationSound, syncStepContextToAssistant]);
 
   const triggerPrevStep = useCallback(() => {
-    setCurrentStep(prev => Math.max(prev - 1, 0));
+    const prev = currentStepRef.current;
+    const newStep = Math.max(prev - 1, 0);
+    currentStepRef.current = newStep;
+    setCurrentStep(newStep);
     notify("Previous step");
-  }, [playConfirmationSound]);
+    syncStepContextToAssistant(newStep);
+  }, [playConfirmationSound, syncStepContextToAssistant]);
 
   const triggerGoToStep = useCallback((index: number) => {
     const safeIndex = Math.max(0, Math.min(index, stepsCount - 1));
+    currentStepRef.current = safeIndex;
     setCurrentStep(safeIndex);
     notify(`Step ${safeIndex + 1}`);
-  }, [stepsCount, playConfirmationSound]);
+    syncStepContextToAssistant(safeIndex);
+  }, [stepsCount, playConfirmationSound, syncStepContextToAssistant]);
 
-  const triggerStartTimer = useCallback((minutes: number) => {
-    setTimerSeconds(minutes * 60);
+  const triggerStartTimer = useCallback((totalSeconds: number) => {
+    timerDoneNotifiedRef.current = false;
+    const clamped = Math.max(1, Math.floor(totalSeconds));
+    setTimerSeconds(clamped);
     setTimerIsPaused(false);
-    setShowFinishedOverlay(false);
-    notify(`Timer: ${minutes}m`);
+    const m = Math.floor(clamped / 60);
+    const s = clamped % 60;
+    const label = m > 0 && s > 0 ? `${m}m ${s}s` : m > 0 ? `${m}m` : `${s}s`;
+    notify(`Timer: ${label}`);
   }, [playConfirmationSound]);
 
   const triggerPauseTimer = useCallback(() => {
@@ -93,9 +158,9 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit }) => {
   }, [playConfirmationSound]);
 
   const triggerStopTimer = useCallback(() => {
+    timerDoneNotifiedRef.current = false;
     setTimerSeconds(null);
     setTimerIsPaused(false);
-    setShowFinishedOverlay(false);
     notify("Timer stopped");
   }, [playConfirmationSound]);
 
@@ -126,18 +191,33 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit }) => {
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     }
 
-    if (timerSeconds === 0) {
-      setShowFinishedOverlay(true);
-      if (audioContextRef.current) {
+    if (timerSeconds === 0 && !timerDoneNotifiedRef.current) {
+      timerDoneNotifiedRef.current = true;
+      setToolNotification("Timer done!");
+      setTimeout(() => setToolNotification(null), 2000);
+      if (appSettings.timerSound && audioContextRef.current) {
         const ctx = audioContextRef.current;
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.frequency.setValueAtTime(880, ctx.currentTime);
-        gain.gain.setValueAtTime(0.1, ctx.currentTime);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.5);
+        const freq = 880;
+        const gainVal = 0.12;
+        const ringDur = 0.35;
+        const gap = 0.2;
+        [0, 1, 2].forEach((i) => {
+          const t = ctx.currentTime + i * (ringDur + gap);
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.frequency.setValueAtTime(freq, t);
+          gain.gain.setValueAtTime(0, t);
+          gain.gain.linearRampToValueAtTime(gainVal, t + 0.02);
+          gain.gain.setValueAtTime(gainVal, t + ringDur - 0.02);
+          gain.gain.linearRampToValueAtTime(0, t + ringDur);
+          osc.start(t);
+          osc.stop(t + ringDur);
+        });
+      }
+      if (appSettings.hapticFeedback && typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate([100, 50, 100]);
       }
     }
 
@@ -158,8 +238,11 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit }) => {
       name: 'startTimer',
       parameters: {
         type: Type.OBJECT,
-        description: 'Start a kitchen timer.',
-        properties: { minutes: { type: Type.NUMBER, description: 'Minutes' } },
+        description: 'Start a kitchen timer. Pass minutes (use 0 for seconds-only) and optionally seconds (e.g. 5 min, or 0 min + 30 sec).',
+        properties: {
+          minutes: { type: Type.NUMBER, description: 'Minutes (use 0 for under a minute)' },
+          seconds: { type: Type.NUMBER, description: 'Seconds (optional, e.g. 30 for 30 seconds)' }
+        },
         required: ['minutes']
       }
     },
@@ -196,19 +279,25 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit }) => {
       const buffer = await decodeAudioData(decode(audioData), ctx, 24000, 1);
       const source = ctx.createBufferSource();
       source.buffer = buffer;
+      source.playbackRate.value = appSettings.voiceSpeed;
       source.connect(ctx.destination);
       source.addEventListener('ended', () => {
         sourcesRef.current.delete(source);
         if (sourcesRef.current.size === 0) setIsAssistantSpeaking(false);
       });
       source.start(nextStartTimeRef.current);
-      nextStartTimeRef.current += buffer.duration;
+      nextStartTimeRef.current += buffer.duration / appSettings.voiceSpeed;
       sourcesRef.current.add(source);
     }
 
     if (message.toolCall) {
       for (const fc of message.toolCall.functionCalls) {
-        if (fc.name === 'startTimer') triggerStartTimer(fc.args.minutes as number);
+        if (fc.name === 'startTimer') {
+          const mins = typeof fc.args?.minutes === 'number' ? fc.args.minutes : 0;
+          const secs = typeof fc.args?.seconds === 'number' ? fc.args.seconds : 0;
+          const total = mins * 60 + secs;
+          triggerStartTimer(Math.max(1, total));
+        }
         else if (fc.name === 'pauseTimer') triggerPauseTimer();
         else if (fc.name === 'resumeTimer') triggerResumeTimer();
         else if (fc.name === 'stopTimer') triggerStopTimer();
@@ -228,7 +317,7 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit }) => {
     }
     if (message.serverContent?.turnComplete) setAiResponse('');
     if (message.serverContent?.interrupted) stopAudio();
-  }, [triggerNextStep, triggerPrevStep, triggerGoToStep, triggerStartTimer, triggerPauseTimer, triggerResumeTimer, triggerStopTimer, triggerSetTemperature, stopAudio]);
+  }, [appSettings.voiceSpeed, triggerNextStep, triggerPrevStep, triggerGoToStep, triggerStartTimer, triggerPauseTimer, triggerResumeTimer, triggerStopTimer, triggerSetTemperature, stopAudio]);
 
   const toggleVoiceAssistant = async () => {
     if (isListening) {
@@ -264,6 +353,13 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit }) => {
         callbacks: {
           onopen: () => {
             setIsListening(true);
+            // Inject current step context as soon as connection opens (user may have manually navigated before opening mic).
+            sessionPromise.then(session => {
+              session.sendClientContent({
+                turns: getCurrentStepContext(currentStepRef.current),
+                turnComplete: false
+              });
+            });
             const source = inputAudioContextRef.current!.createMediaStreamSource(stream);
             const processor = inputAudioContextRef.current!.createScriptProcessor(4096, 1, 1);
 
@@ -309,22 +405,25 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit }) => {
           tools: [{ functionDeclarations: tools }],
           systemInstruction: `You are the CookAI Assistant for "${recipe.title}". 
           
+          LANGUAGE: Always respond and speak only in ${VOICE_LANGUAGE_OPTIONS.find((o) => o.code === appSettings.voiceLanguage)?.label ?? 'English'}. Use no other language.
+          
           RECIPE STEPS:
           ${recipe.steps.map((s, i) => `Step ${i + 1}: ${s}`).join('\n')}
           
           CRITICAL SYNC & AUDITORY FEEDBACK RULES:
           1. YOU MUST VERBALLY ANNOUNCE EVERY ACTION. Confirmations are required for starting, pausing, stopping timers, setting temperatures, and moving steps.
           2. Examples of mandatory verbal announcements:
-             - "Starting timer for 10 minutes."
+             - "Starting timer for 10 minutes." / "Starting timer for 30 seconds." / "Starting timer for 2 minutes 30 seconds."
              - "Timer paused."
              - "Resuming your timer."
              - "Timer stopped."
              - "Setting heat to Medium-High."
-             - "Okay, next step."
+             - For step changes: say "Okay, next step" or "Previous step" ONCE, then state only what to do (the instruction). Do NOT say the step number (e.g. "Step 2") in that same reply.
           3. WHENEVER you refer to a specific step, call goToStep(index) first.
-          4. NEVER say technical indices like "Index 0". Say "Step 1".
-          5. Respond instantly and concisely.
-          6. If noise is high, keep your verbal confirmations short but clear.`,
+          4. NEVER repeat the step number twice. After calling goToStep/nextStep/previousStep, the screen already shows the step—do NOT say "Step N" or "Moving to step N" in your confirmation. Give one short confirmation and only the instruction, e.g. "Okay. Chop the onions."
+          5. NEVER say technical indices like "Index 0". Say "Step 1" only when the user asks which step (and say it once).
+          6. Respond instantly and concisely.
+          7. If noise is high, keep your verbal confirmations short but clear.`,
           outputAudioTranscription: {},
         }
       });
@@ -342,21 +441,6 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit }) => {
 
   return (
     <div className="fixed inset-0 bg-stone-50 z-50 flex flex-col overflow-hidden">
-      {showFinishedOverlay && (
-        <div className="fixed inset-0 z-[100] bg-emerald-600 flex flex-col items-center justify-center p-8 animate-in fade-in zoom-in duration-300">
-          <div className="w-32 h-32 bg-white rounded-full flex items-center justify-center mb-8 animate-bounce shadow-2xl">
-            <span className="text-6xl text-emerald-600">🔔</span>
-          </div>
-          <h2 className="text-4xl font-black text-white text-center mb-4">TIMER DONE!</h2>
-          <button
-            onClick={() => triggerStopTimer()}
-            className="bg-white text-emerald-600 px-12 py-4 rounded-2xl font-black text-xl shadow-lg active:scale-95 transition-transform"
-          >
-            OK
-          </button>
-        </div>
-      )}
-
       {toolNotification && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[60] animate-in slide-in-from-top-4 fade-in duration-300">
           <div className="bg-stone-900 text-white px-5 py-2.5 rounded-full shadow-2xl font-bold text-xs flex items-center gap-2">
@@ -378,7 +462,7 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit }) => {
 
       <div className="w-full h-1.5 bg-stone-100">
         <div
-          className="h-full bg-emerald-500 transition-all duration-700 ease-out"
+          className="h-full bg-emerald-500 transition-[width] duration-200 ease-out"
           style={{ width: `${((currentStep + 1) / stepsCount) * 100}%` }}
         />
       </div>
@@ -404,13 +488,13 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit }) => {
           <div className={`p-5 rounded-[2rem] border transition-all h-36 flex flex-col justify-between ${timerSeconds !== null ? 'bg-emerald-600 text-white shadow-lg border-emerald-500' : 'bg-white border-stone-100 shadow-sm'}`}>
             <p className="text-[9px] uppercase font-black tracking-widest opacity-60">Step Timer</p>
             <p className="text-2xl font-mono font-black">{timerSeconds !== null ? formatTime(timerSeconds) : '0:00'}</p>
-            <button onClick={() => triggerStartTimer(5)} className="w-full h-10 rounded-xl bg-white/20 text-[10px] font-black uppercase tracking-widest backdrop-blur-sm active:scale-95 transition-transform">5m Start</button>
+            <button onClick={() => triggerStartTimer(5 * 60)} className="w-full h-10 rounded-xl bg-white/20 text-[10px] font-black uppercase tracking-widest backdrop-blur-sm active:scale-95 transition-transform">5m Start</button>
           </div>
 
           <div className={`p-5 rounded-[2rem] border transition-all h-36 flex flex-col justify-between ${activeTemperature !== 'Off' ? 'bg-orange-500 text-white shadow-lg border-orange-400' : 'bg-white border-stone-100 shadow-sm'}`}>
             <p className="text-[9px] uppercase font-black tracking-widest opacity-60">Heat Level</p>
-            <p className="text-2xl font-black">{activeTemperature}</p>
-            <button onClick={() => triggerSetTemperature(suggestedTemp)} className="w-full h-10 rounded-xl bg-white/20 text-[10px] font-black uppercase tracking-widest backdrop-blur-sm active:scale-95 transition-transform">{suggestedTemp}</button>
+            <p className="text-2xl font-black">{formatTempForDisplay(activeTemperature, appSettings.units)}</p>
+            <button onClick={() => triggerSetTemperature(suggestedTemp)} className="w-full h-10 rounded-xl bg-white/20 text-[10px] font-black uppercase tracking-widest backdrop-blur-sm active:scale-95 transition-transform">{formatTempForDisplay(suggestedTemp, appSettings.units)}</button>
           </div>
         </div>
       </div>

@@ -1,146 +1,66 @@
+import { getDoc, setDoc, doc } from 'firebase/firestore';
+import { db } from './firebase';
+import { Recipe, UserPreferences, AppSettings, DEFAULT_APP_SETTINGS } from '../types';
+import {
+  getRecipesFromFirestore,
+  updateRecipeInFirestore,
+} from './recipeService';
 
-import { Recipe, UserPreferences } from '../types';
-import { MOCK_RECIPES } from '../constants';
-
-// Declare sql.js global since we load it via script tag
-declare const initSqlJs: any;
-
-let db: any = null;
-const DB_NAME = 'cookai_db';
-const STORE_NAME = 'sqlite_file';
-
-/**
- * Persists the current SQLite DB state to IndexedDB
- */
-const persistToIndexedDB = async () => {
-  if (!db) return;
-  const binaryArray = db.export();
-  const request = indexedDB.open(DB_NAME, 1);
-  
-  request.onupgradeneeded = (e: any) => {
-    const dbInst = e.target.result;
-    if (!dbInst.objectStoreNames.contains(STORE_NAME)) {
-      dbInst.createObjectStore(STORE_NAME);
-    }
-  };
-
-  request.onsuccess = (e: any) => {
-    const dbInst = e.target.result;
-    const transaction = dbInst.transaction(STORE_NAME, 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
-    store.put(binaryArray, 'db_file');
-  };
+/** Recipes: users/{userId}/recipes/{recipeId} */
+export const getAllRecipes = async (userId: string): Promise<Recipe[]> => {
+  return getRecipesFromFirestore(userId);
 };
 
-/**
- * Loads the SQLite DB state from IndexedDB
- */
-const loadFromIndexedDB = (): Promise<Uint8Array | null> => {
-  return new Promise((resolve) => {
-    const request = indexedDB.open(DB_NAME, 1);
-    request.onupgradeneeded = (e: any) => {
-      const dbInst = e.target.result;
-      if (!dbInst.objectStoreNames.contains(STORE_NAME)) {
-        dbInst.createObjectStore(STORE_NAME);
-      }
-    };
-    request.onsuccess = (e: any) => {
-      const dbInst = e.target.result;
-      const transaction = dbInst.transaction(STORE_NAME, 'readonly');
-      const store = transaction.objectStore(STORE_NAME);
-      const getRequest = store.get('db_file');
-      getRequest.onsuccess = () => resolve(getRequest.result || null);
-      getRequest.onerror = () => resolve(null);
-    };
-    request.onerror = () => resolve(null);
-  });
+export const updateRecipeInDB = async (userId: string, recipe: Recipe): Promise<void> => {
+  await updateRecipeInFirestore(userId, recipe);
 };
 
-export const initDB = async () => {
-  if (db) return db;
-
-  const SQL = await initSqlJs({
-    locateFile: (file: string) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.12.0/${file}`
-  });
-
-  const savedBuffer = await loadFromIndexedDB();
-  db = savedBuffer ? new SQL.Database(savedBuffer) : new SQL.Database();
-
-  // Create Tables if they don't exist
-  db.run(`
-    CREATE TABLE IF NOT EXISTS recipes (
-      id TEXT PRIMARY KEY,
-      title TEXT,
-      description TEXT,
-      prepTime TEXT,
-      cookTime TEXT,
-      difficulty TEXT,
-      servings INTEGER,
-      image TEXT,
-      ingredients TEXT,
-      steps TEXT,
-      calories INTEGER
-    );
-    CREATE TABLE IF NOT EXISTS preferences (
-      key TEXT PRIMARY KEY,
-      value TEXT
-    );
-  `);
-
-  // Seed data if empty
-  const count = db.exec("SELECT COUNT(*) FROM recipes")[0].values[0][0];
-  if (count === 0) {
-    for (const r of MOCK_RECIPES) {
-      db.run(`INSERT INTO recipes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
-        r.id, r.title, r.description, r.prepTime, r.cookTime, r.difficulty, 
-        r.servings, r.image, JSON.stringify(r.ingredients), JSON.stringify(r.steps), r.calories || 0
-      ]);
-    }
-    await persistToIndexedDB();
+/** User preferences: users/{userId}/preferences (single doc) */
+export const getPreferences = async (userId: string): Promise<UserPreferences | null> => {
+  try {
+    const ref = doc(db, 'users', userId, 'preferences', 'user');
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return null;
+    const data = snap.data();
+    return {
+      dietary: Array.isArray(data?.dietary) ? data.dietary : [],
+      allergies: Array.isArray(data?.allergies) ? data.allergies : [],
+      skillLevel: (data?.skillLevel as UserPreferences['skillLevel']) ?? 'Beginner',
+    };
+  } catch (err) {
+    console.warn('Firestore getPreferences failed:', err);
+    return null;
   }
-
-  return db;
 };
 
-export const getAllRecipes = async (): Promise<Recipe[]> => {
-  await initDB();
-  const res = db.exec("SELECT * FROM recipes");
-  if (res.length === 0) return [];
-  
-  const columns = res[0].columns;
-  return res[0].values.map((row: any[]) => {
-    const obj: any = {};
-    columns.forEach((col: string, idx: number) => {
-      let val = row[idx];
-      if (col === 'ingredients' || col === 'steps') val = JSON.parse(val);
-      obj[col] = val;
-    });
-    return obj as Recipe;
-  });
+export const savePreferences = async (userId: string, prefs: UserPreferences): Promise<void> => {
+  const ref = doc(db, 'users', userId, 'preferences', 'user');
+  await setDoc(ref, prefs, { merge: true });
 };
 
-export const updateRecipeInDB = async (recipe: Recipe) => {
-  await initDB();
-  db.run(`
-    UPDATE recipes SET 
-      servings = ?, 
-      ingredients = ?, 
-      steps = ? 
-    WHERE id = ?`, 
-    [recipe.servings, JSON.stringify(recipe.ingredients), JSON.stringify(recipe.steps), recipe.id]
-  );
-  await persistToIndexedDB();
+/** App settings: users/{userId}/appSettings (single doc) */
+export const getAppSettings = async (userId: string): Promise<AppSettings> => {
+  try {
+    const ref = doc(db, 'users', userId, 'appSettings', 'user');
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return { ...DEFAULT_APP_SETTINGS };
+    const data = snap.data();
+    return {
+      ...DEFAULT_APP_SETTINGS,
+      units: (data?.units as AppSettings['units']) ?? DEFAULT_APP_SETTINGS.units,
+      voiceSpeed: typeof data?.voiceSpeed === 'number' ? data.voiceSpeed : DEFAULT_APP_SETTINGS.voiceSpeed,
+      voiceLanguage: typeof data?.voiceLanguage === 'string' ? data.voiceLanguage : DEFAULT_APP_SETTINGS.voiceLanguage,
+      hapticFeedback: typeof data?.hapticFeedback === 'boolean' ? data.hapticFeedback : DEFAULT_APP_SETTINGS.hapticFeedback,
+      defaultServings: typeof data?.defaultServings === 'number' ? data.defaultServings : DEFAULT_APP_SETTINGS.defaultServings,
+      timerSound: typeof data?.timerSound === 'boolean' ? data.timerSound : DEFAULT_APP_SETTINGS.timerSound,
+    };
+  } catch (err) {
+    console.warn('Firestore getAppSettings failed:', err);
+    return { ...DEFAULT_APP_SETTINGS };
+  }
 };
 
-export const savePreferences = async (prefs: UserPreferences) => {
-  await initDB();
-  db.run(`INSERT OR REPLACE INTO preferences VALUES ('user_prefs', ?)`, [JSON.stringify(prefs)]);
-  await persistToIndexedDB();
-};
-
-export const getPreferences = async (): Promise<UserPreferences | null> => {
-  await initDB();
-  const res = db.exec("SELECT value FROM preferences WHERE key = 'user_prefs'");
-  if (res.length === 0) return null;
-  return JSON.parse(res[0].values[0][0]);
+export const saveAppSettings = async (userId: string, settings: AppSettings): Promise<void> => {
+  const ref = doc(db, 'users', userId, 'appSettings', 'user');
+  await setDoc(ref, settings, { merge: true });
 };

@@ -1,39 +1,66 @@
 
 import React, { useState, useEffect } from 'react';
-import { AppView, Recipe, UserPreferences } from './types';
+import { AppView, Recipe, AppSettings, DEFAULT_APP_SETTINGS } from './types';
 import RecipeCard from './components/RecipeCard';
 import CookingMode from './components/CookingMode';
 import RecipeSetup from './components/RecipeSetup';
 import IngredientScanner from './components/IngredientScanner';
-import { getAllRecipes, getPreferences, savePreferences } from './services/dbService';
+import Login from './components/Login';
+import Profile from './components/Profile';
+import Settings from './components/Settings';
+import { getAllRecipes, getAppSettings } from './services/dbService';
+import { subscribeToAuthState, signOut } from './services/authService';
+import type { User } from 'firebase/auth';
+
+const BOTTOM_NAV_VIEWS: AppView[] = [
+  AppView.Home,
+  AppView.Inventory,
+  AppView.Profile,
+  AppView.RecipeDetail,
+  AppView.RecipeSetup,
+];
 
 const App: React.FC = () => {
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [currentView, setCurrentView] = useState<AppView>(AppView.Home);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [scaledRecipe, setScaledRecipe] = useState<Recipe | null>(null);
-  const [userPrefs, setUserPrefs] = useState<UserPreferences>({
-    dietary: [],
-    allergies: [],
-    skillLevel: 'Beginner'
-  });
+  const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    const unsubscribe = subscribeToAuthState((user) => {
+      setAuthUser(user);
+      setAuthChecked(true);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!authUser) {
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
     const loadData = async () => {
       try {
-        const dbRecipes = await getAllRecipes();
-        const dbPrefs = await getPreferences();
+        const uid = authUser.uid;
+        const [dbRecipes, dbSettings] = await Promise.all([
+          getAllRecipes(uid),
+          getAppSettings(uid),
+        ]);
         setRecipes(dbRecipes);
-        if (dbPrefs) setUserPrefs(dbPrefs);
+        setAppSettings(dbSettings);
       } catch (err) {
-        console.error("Failed to load SQLite data", err);
+        console.error("Failed to load data", err);
       } finally {
         setIsLoading(false);
       }
     };
     loadData();
-  }, []);
+  }, [authUser]);
 
   const handleRecipeClick = (recipe: Recipe) => {
     setSelectedRecipe(recipe);
@@ -69,16 +96,18 @@ const App: React.FC = () => {
     setCurrentView(AppView.RecipeDetail);
   };
 
-  if (isLoading) {
-    return (
-      <div className="max-w-md mx-auto h-screen flex items-center justify-center bg-[#fcfcf9]">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-stone-400 font-bold text-xs uppercase tracking-widest">Initializing SQLite...</p>
-        </div>
+  const renderLoading = (message: string) => (
+    <div className="max-w-md mx-auto h-screen flex items-center justify-center bg-[#fcfcf9]">
+      <div className="flex flex-col items-center gap-4">
+        <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-stone-400 font-bold text-xs uppercase tracking-widest">{message}</p>
       </div>
-    );
-  }
+    </div>
+  );
+
+  if (!authChecked) return renderLoading('Loading...');
+  if (!authUser) return <Login onSuccess={() => {}} />;
+  if (isLoading) return renderLoading('Initializing...');
 
   const renderHome = () => (
     <div className="space-y-8 pb-24">
@@ -92,9 +121,9 @@ const App: React.FC = () => {
           <span className="absolute inset-y-0 left-4 flex items-center text-stone-400">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
           </span>
-          <input 
-            type="text" 
-            placeholder="Search recipes or ingredients..." 
+          <input
+            type="text"
+            placeholder="Search recipes or ingredients..."
             className="w-full bg-stone-100 rounded-2xl py-3 pl-12 pr-4 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all text-sm"
           />
         </div>
@@ -113,14 +142,14 @@ const App: React.FC = () => {
       </section>
 
       <section className="px-6">
-        <div 
+        <div
           onClick={() => setCurrentView(AppView.Scanner)}
           className="bg-emerald-900 rounded-[2.5rem] p-8 text-white flex items-center justify-between shadow-xl cursor-pointer hover:bg-emerald-800 active:scale-[0.98] transition-all overflow-hidden relative group"
         >
           <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-700"></div>
           <div className="space-y-1 relative z-10">
             <h3 className="font-bold text-xl">Scan Ingredients</h3>
-            <p className="text-emerald-200 text-sm opacity-80 leading-tight">AI will suggest what to cook<br/>based on your pantry</p>
+            <p className="text-emerald-200 text-sm opacity-80 leading-tight">AI will suggest what to cook<br />based on your pantry</p>
           </div>
           <div className="bg-white text-emerald-900 p-4 rounded-2xl shadow-lg relative z-10">
             <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
@@ -135,12 +164,12 @@ const App: React.FC = () => {
     return (
       <div className="bg-white min-h-screen pb-32 animate-in fade-in duration-300">
         <div className="relative h-[40vh]">
-          <img 
-            src={selectedRecipe.image} 
-            alt={selectedRecipe.title} 
+          <img
+            src={selectedRecipe.image}
+            alt={selectedRecipe.title}
             className="w-full h-full object-cover"
           />
-          <button 
+          <button
             onClick={() => setCurrentView(AppView.Home)}
             className="absolute top-8 left-6 p-2 bg-white/90 backdrop-blur-sm rounded-xl text-stone-800 shadow-md z-10"
           >
@@ -155,18 +184,18 @@ const App: React.FC = () => {
           </div>
 
           <div className="flex justify-between items-center py-4 border-y border-stone-100">
-             <div className="text-center">
-               <p className="text-xs text-stone-400 font-bold uppercase mb-1">Time</p>
-               <p className="font-bold text-stone-800">{selectedRecipe.cookTime}</p>
-             </div>
-             <div className="text-center">
-               <p className="text-xs text-stone-400 font-bold uppercase mb-1">Level</p>
-               <p className="font-bold text-stone-800">{selectedRecipe.difficulty}</p>
-             </div>
-             <div className="text-center">
-               <p className="text-xs text-stone-400 font-bold uppercase mb-1">Serves</p>
-               <p className="font-bold text-stone-800">{selectedRecipe.servings}</p>
-             </div>
+            <div className="text-center">
+              <p className="text-xs text-stone-400 font-bold uppercase mb-1">Time</p>
+              <p className="font-bold text-stone-800">{selectedRecipe.cookTime}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs text-stone-400 font-bold uppercase mb-1">Level</p>
+              <p className="font-bold text-stone-800">{selectedRecipe.difficulty}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs text-stone-400 font-bold uppercase mb-1">Serves</p>
+              <p className="font-bold text-stone-800">{selectedRecipe.servings}</p>
+            </div>
           </div>
 
           <div className="space-y-4">
@@ -197,7 +226,7 @@ const App: React.FC = () => {
         </div>
 
         <div className="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-white via-white to-white/0 z-50">
-          <button 
+          <button
             onClick={goToSetup}
             className="w-full bg-emerald-600 text-white font-black py-4 rounded-2xl shadow-lg hover:bg-emerald-700 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
           >
@@ -213,29 +242,46 @@ const App: React.FC = () => {
     <div className="max-w-md mx-auto min-h-screen bg-[#fcfcf9] shadow-2xl relative">
       {currentView === AppView.Home && renderHome()}
       {currentView === AppView.RecipeDetail && renderRecipeDetail()}
-      {currentView === AppView.RecipeSetup && selectedRecipe && (
-        <RecipeSetup 
+      {currentView === AppView.RecipeSetup && selectedRecipe && authUser && (
+        <RecipeSetup
           recipe={selectedRecipe}
           onComplete={onSetupComplete}
           onCancel={() => setCurrentView(AppView.RecipeDetail)}
+          appSettings={appSettings}
+          userId={authUser.uid}
         />
       )}
       {currentView === AppView.CookingMode && scaledRecipe && (
-        <CookingMode 
-          recipe={scaledRecipe} 
-          onExit={() => setCurrentView(AppView.RecipeDetail)} 
+        <CookingMode
+          recipe={scaledRecipe}
+          onExit={() => setCurrentView(AppView.RecipeDetail)}
+          appSettings={appSettings}
         />
       )}
       {currentView === AppView.Scanner && (
-        <IngredientScanner 
+        <IngredientScanner
           onClose={() => setCurrentView(AppView.Home)}
           onSelectRecipe={handleScannedRecipe}
         />
       )}
+      {currentView === AppView.Profile && authUser && (
+        <Profile
+          user={authUser}
+          onBack={() => setCurrentView(AppView.Home)}
+          onOpenSettings={() => setCurrentView(AppView.Settings)}
+        />
+      )}
+      {currentView === AppView.Settings && authUser && (
+        <Settings
+          userId={authUser.uid}
+          onBack={() => setCurrentView(AppView.Profile)}
+          onSaved={(s) => setAppSettings(s)}
+        />
+      )}
 
-      {(currentView === AppView.Home || currentView === AppView.Inventory || currentView === AppView.Profile) && (
+      {BOTTOM_NAV_VIEWS.includes(currentView) && (
         <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/80 backdrop-blur-md border-t border-stone-200 px-8 py-4 flex items-center justify-between z-40">
-          <button 
+          <button
             onClick={() => setCurrentView(AppView.Home)}
             className={`p-2 rounded-xl transition-colors ${currentView === AppView.Home ? 'text-emerald-600 bg-emerald-50' : 'text-stone-400'}`}
           >
@@ -244,11 +290,19 @@ const App: React.FC = () => {
           <button className="p-2 text-stone-400">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
           </button>
-          <button className="p-2 text-stone-400">
+          <button
+            onClick={() => setCurrentView(AppView.Profile)}
+            className={`p-2 rounded-xl transition-colors ${currentView === AppView.Profile ? 'text-emerald-600 bg-emerald-50' : 'text-stone-400'}`}
+            title="Profile"
+          >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
           </button>
-          <button className="p-2 text-stone-400">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+          <button
+            onClick={() => signOut()}
+            className="p-2 text-stone-400 hover:text-stone-600"
+            title="Sign out"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
           </button>
         </nav>
       )}
