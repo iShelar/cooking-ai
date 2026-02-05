@@ -5,6 +5,7 @@ import RecipeCard from './components/RecipeCard';
 import CookingMode from './components/CookingMode';
 import RecipeSetup from './components/RecipeSetup';
 import IngredientScanner from './components/IngredientScanner';
+import CreateFromYouTube from './components/CreateFromYouTube';
 import Login from './components/Login';
 import Profile from './components/Profile';
 import Settings from './components/Settings';
@@ -18,6 +19,7 @@ const BOTTOM_NAV_VIEWS: AppView[] = [
   AppView.Profile,
   AppView.RecipeDetail,
   AppView.RecipeSetup,
+  AppView.CreateFromYouTube,
 ];
 
 const App: React.FC = () => {
@@ -141,7 +143,20 @@ const App: React.FC = () => {
         </div>
       </section>
 
-      <section className="px-6">
+      <section className="px-6 space-y-4">
+        <div
+          onClick={() => setCurrentView(AppView.CreateFromYouTube)}
+          className="bg-stone-800 rounded-[2.5rem] p-8 text-white flex items-center justify-between shadow-xl cursor-pointer hover:bg-stone-700 active:scale-[0.98] transition-all overflow-hidden relative group"
+        >
+          <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/10 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-700"></div>
+          <div className="space-y-1 relative z-10">
+            <h3 className="font-bold text-xl">Create from YouTube</h3>
+            <p className="text-stone-300 text-sm opacity-80 leading-tight">Turn a cooking video into a recipe<br />with step timestamps</p>
+          </div>
+          <div className="bg-white text-red-600 p-4 rounded-2xl shadow-lg relative z-10">
+            <svg className="w-7 h-7" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+          </div>
+        </div>
         <div
           onClick={() => setCurrentView(AppView.Scanner)}
           className="bg-emerald-900 rounded-[2.5rem] p-8 text-white flex items-center justify-between shadow-xl cursor-pointer hover:bg-emerald-800 active:scale-[0.98] transition-all overflow-hidden relative group"
@@ -210,6 +225,18 @@ const App: React.FC = () => {
             </ul>
           </div>
 
+          {selectedRecipe.videoUrl && (
+            <a
+              href={selectedRecipe.videoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 py-3 px-4 bg-stone-100 rounded-2xl text-stone-700 font-medium text-sm hover:bg-stone-200"
+            >
+              <svg className="w-5 h-5 text-red-600" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+              Watch recipe video
+            </a>
+          )}
+
           <div className="space-y-4">
             <h2 className="text-xl font-bold text-stone-800">Instructions</h2>
             <div className="space-y-6">
@@ -276,6 +303,17 @@ const App: React.FC = () => {
           userId={authUser.uid}
           onBack={() => setCurrentView(AppView.Profile)}
           onSaved={(s) => setAppSettings(s)}
+        />
+      )}
+      {currentView === AppView.CreateFromYouTube && authUser && (
+        <CreateFromYouTube
+          userId={authUser.uid}
+          onCreated={(recipe) => {
+            setRecipes((prev) => [...prev.filter((r) => r.id !== recipe.id), recipe]);
+            setSelectedRecipe(recipe);
+            setCurrentView(AppView.RecipeDetail);
+          }}
+          onCancel={() => setCurrentView(AppView.Home)}
         />
       )}
 

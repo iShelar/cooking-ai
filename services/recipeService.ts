@@ -60,7 +60,7 @@ export const updateRecipeInFirestore = async (userId: string, recipe: Recipe): P
 };
 
 function toFirestoreRecipe(r: Recipe): Record<string, unknown> {
-  return {
+  const out: Record<string, unknown> = {
     title: r.title,
     description: r.description,
     prepTime: r.prepTime,
@@ -72,10 +72,14 @@ function toFirestoreRecipe(r: Recipe): Record<string, unknown> {
     steps: r.steps,
     calories: r.calories ?? 0,
   };
+  if (r.videoUrl != null) out.videoUrl = r.videoUrl;
+  if (r.stepTimestamps != null) out.stepTimestamps = r.stepTimestamps;
+  if (r.videoSegments != null) out.videoSegments = r.videoSegments;
+  return out;
 }
 
 function fromFirestoreRecipe(id: string, data: Record<string, unknown>): Recipe {
-  return {
+  const r: Recipe = {
     id,
     title: (data.title as string) ?? '',
     description: (data.description as string) ?? '',
@@ -88,4 +92,8 @@ function fromFirestoreRecipe(id: string, data: Record<string, unknown>): Recipe 
     steps: Array.isArray(data.steps) ? (data.steps as string[]) : [],
     calories: (data.calories as number) ?? undefined,
   };
+  if (typeof data.videoUrl === 'string') r.videoUrl = data.videoUrl;
+  if (Array.isArray(data.stepTimestamps)) r.stepTimestamps = data.stepTimestamps as string[];
+  if (Array.isArray(data.videoSegments)) r.videoSegments = data.videoSegments as Recipe['videoSegments'];
+  return r;
 }

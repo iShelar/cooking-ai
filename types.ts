@@ -1,4 +1,11 @@
 
+/** Video segment from YouTube timestamp service (one per step or transcript chunk). */
+export interface VideoTimestampSegment {
+  timestamp: string; // MM:SS
+  content: string;
+  speaker?: string;
+}
+
 export interface Recipe {
   id: string;
   title: string;
@@ -11,6 +18,12 @@ export interface Recipe {
   ingredients: string[];
   steps: string[];
   calories?: number;
+  /** YouTube URL when recipe is created from / linked to a video. */
+  videoUrl?: string;
+  /** Per-step video timestamps (MM:SS), same length as steps. */
+  stepTimestamps?: string[];
+  /** Full transcript segments for agent Q&A (e.g. "what happens at 2:30?"). */
+  videoSegments?: VideoTimestampSegment[];
 }
 
 export interface Ingredient {
@@ -84,6 +97,7 @@ export enum AppView {
   RecipeSetup = 'recipe-setup',
   CookingMode = 'cooking-mode',
   Scanner = 'scanner',
+  CreateFromYouTube = 'create-from-youtube',
   Inventory = 'inventory',
   Profile = 'profile',
   Settings = 'settings',

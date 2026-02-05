@@ -10,6 +10,54 @@ interface CookingModeProps {
   appSettings?: AppSettings | null;
 }
 
+/** Parse MM:SS or M:SS to seconds for YouTube t= param */
+function timestampToSeconds(mmss: string): number {
+  const parts = mmss.trim().split(':').map(Number);
+  if (parts.length >= 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 1) return parts[0];
+  return 0;
+}
+
+function youtubeUrlAtTime(videoUrl: string, mmss: string): string {
+  const sep = videoUrl.includes('?') ? '&' : '?';
+  return `${videoUrl}${sep}t=${timestampToSeconds(mmss)}`;
+}
+
+/** Get YouTube video ID from watch or youtu.be URL. */
+function getYouTubeVideoId(videoUrl: string): string {
+  if (videoUrl.includes('v=')) return videoUrl.split('v=')[1]?.split('&')[0] ?? '';
+  if (videoUrl.includes('youtu.be/')) return videoUrl.split('youtu.be/')[1]?.split('?')[0] ?? '';
+  return '';
+}
+
+/** Get YouTube embed URL with optional start time in seconds (for iframe src). */
+function getYouTubeEmbedUrl(videoUrl: string, startSeconds?: number): string {
+  const videoId = getYouTubeVideoId(videoUrl);
+  if (!videoId) return '';
+  const params = new URLSearchParams();
+  if (startSeconds > 0) params.set('start', String(startSeconds));
+  const q = params.toString();
+  return `https://www.youtube.com/embed/${videoId}${q ? `?${q}` : ''}`;
+}
+
+/** Minimal YT.Player interface for seek, play, pause, stop, mute, destroy. */
+interface YTPlayerHandle {
+  seekTo: (seconds: number, allowSeekAhead: boolean) => void;
+  playVideo?: () => void;
+  pauseVideo?: () => void;
+  stopVideo?: () => void;
+  mute?: () => void;
+  unMute?: () => void;
+  destroy: () => void;
+}
+
+declare global {
+  interface Window {
+    YT?: { Player: new (el: string | HTMLElement, opts: Record<string, unknown>) => YTPlayerHandle };
+    onYouTubeIframeAPIReady?: () => void;
+  }
+}
+
 const celsiusToFahrenheit = (c: number) => Math.round(c * (9 / 5) + 32);
 const formatTempForDisplay = (suggestion: string, units: 'metric' | 'imperial'): string => {
   if (units !== 'imperial') return suggestion;
@@ -33,8 +81,13 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: 
   const [toolNotification, setToolNotification] = useState<string | null>(null);
   const [isAssistantSpeaking, setIsAssistantSpeaking] = useState(false);
   const [inputVolume, setInputVolume] = useState(0);
+  /** When true, show embedded YouTube video that seeks to current step. */
+  const [showEmbeddedVideo, setShowEmbeddedVideo] = useState(false);
+  /** 'agent' = play assistant TTS; 'video' = mute assistant, user hears iframe. */
+  const [audioSource, setAudioSource] = useState<'agent' | 'video'>('agent');
 
   const audioContextRef = useRef<AudioContext | null>(null);
+  const audioSourceRef = useRef<'agent' | 'video'>('agent');
   const inputAudioContextRef = useRef<AudioContext | null>(null);
   const nextStartTimeRef = useRef<number>(0);
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
@@ -43,13 +96,74 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: 
   const timerIntervalRef = useRef<number | null>(null);
   const timerDoneNotifiedRef = useRef(false);
   const currentStepRef = useRef(0);
+  const ytPlayerRef = useRef<YTPlayerHandle | null>(null);
+  const ytContainerRef = useRef<HTMLDivElement>(null);
+  const [ytApiReady, setYtApiReady] = useState(false);
 
   const stepsCount = recipe.steps.length;
+  const videoId = recipe.videoUrl ? getYouTubeVideoId(recipe.videoUrl) : '';
+  const currentStepSeconds = recipe.stepTimestamps?.[currentStep]
+    ? timestampToSeconds(recipe.stepTimestamps[currentStep])
+    : 0;
 
-  // Keep ref in sync so callbacks/effects see latest step (e.g. after manual navigation).
+  // Keep refs in sync for callbacks/effects.
   useEffect(() => {
     currentStepRef.current = currentStep;
   }, [currentStep]);
+  useEffect(() => {
+    audioSourceRef.current = audioSource;
+  }, [audioSource]);
+
+  // Load YouTube IFrame API once.
+  useEffect(() => {
+    if (typeof window === 'undefined' || window.YT) return;
+    const existing = document.querySelector('script[src*="youtube.com/iframe_api"]');
+    if (existing) return;
+    const prev = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      prev?.();
+      setYtApiReady(true);
+    };
+    const script = document.createElement('script');
+    script.src = 'https://www.youtube.com/iframe_api';
+    script.async = true;
+    document.head.appendChild(script);
+    return () => {
+      window.onYouTubeIframeAPIReady = prev;
+    };
+  }, []);
+
+  // Create YT player when video is shown; seek when step changes; destroy when hidden.
+  useEffect(() => {
+    if (!showEmbeddedVideo || !videoId || !ytContainerRef.current) {
+      if (ytPlayerRef.current) {
+        try {
+          ytPlayerRef.current.destroy();
+        } catch (_) {}
+        ytPlayerRef.current = null;
+      }
+      return;
+    }
+    if (!window.YT?.Player) return;
+
+    const el = ytContainerRef.current;
+    if (!ytPlayerRef.current) {
+      try {
+        ytPlayerRef.current = new window.YT!.Player(el, {
+          videoId,
+          width: '100%',
+          height: '200',
+          playerVars: { start: currentStepSeconds },
+        }) as YTPlayerHandle;
+      } catch (_) {
+        ytPlayerRef.current = null;
+      }
+      return;
+    }
+    try {
+      ytPlayerRef.current.seekTo(currentStepSeconds, true);
+    } catch (_) {}
+  }, [showEmbeddedVideo, videoId, ytApiReady, currentStep, currentStepSeconds]);
 
   // When leaving cooking mode (e.g. back button) without turning off the assistant, stop voice recording.
   useEffect(() => {
@@ -68,8 +182,9 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: 
   const getCurrentStepContext = useCallback((stepIndex: number) => {
     const oneBased = stepIndex + 1;
     const instruction = recipe.steps[stepIndex] ?? '';
-    return `[Context: The user is currently viewing Step ${oneBased} of ${stepsCount}. Current step instruction: "${instruction}". When they ask what to do here or refer to "this step", describe Step ${oneBased}.]`;
-  }, [recipe.steps, stepsCount]);
+    const ts = recipe.stepTimestamps?.[stepIndex];
+    return `[Context: User is on Step ${oneBased} of ${stepsCount}${ts ? ` (video ${ts})` : ''}. Instruction: "${instruction}". If they say "next" or "next step", you MUST call nextStep(). If they say "previous" or "go back", you MUST call previousStep(). If they ask to go to another step by number, scenario, or time, you MUST call goToStep(index) with the 0-based index from the step list.]`;
+  }, [recipe.steps, recipe.stepTimestamps, stepsCount]);
 
   const playConfirmationSound = useCallback(() => {
     if (!audioContextRef.current) return;
@@ -267,12 +382,49 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: 
         properties: { index: { type: Type.NUMBER, description: '0-indexed step number' } },
         required: ['index']
       }
+    },
+    {
+      name: 'setAudioSource',
+      parameters: {
+        type: Type.OBJECT,
+        description: 'Switch whether the user hears the assistant (agent) or the recipe video. Use when they say "use video audio", "I want to hear the video", "switch to agent", etc.',
+        properties: {
+          source: { type: Type.STRING, enum: ['agent', 'video'], description: 'agent = assistant speaks; video = mute assistant so user hears embedded video' }
+        },
+        required: ['source']
+      }
+    },
+    {
+      name: 'setVideoPlayback',
+      parameters: {
+        type: Type.OBJECT,
+        description: 'Pause, stop, or play the embedded recipe video. Use when the user says "pause the video", "stop the video", "pause video", "play the video", "resume the video", etc.',
+        properties: {
+          action: { type: Type.STRING, enum: ['play', 'pause', 'stop'], description: 'play = start/resume playback; pause = pause playback; stop = stop and reset to start' }
+        },
+        required: ['action']
+      }
+    },
+    {
+      name: 'setVideoMute',
+      parameters: {
+        type: Type.OBJECT,
+        description: 'Mute or unmute the embedded recipe video. Use when the user says "mute the video", "mute video", "unmute the video", "turn off video sound", etc.',
+        properties: {
+          muted: { type: Type.BOOLEAN, description: 'true = mute the video; false = unmute the video' }
+        },
+        required: ['muted']
+      }
     }
   ];
 
   const handleLiveMessage = useCallback(async (message: LiveServerMessage) => {
     const audioData = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
     if (audioData && audioContextRef.current) {
+      if (audioSourceRef.current === 'video') {
+        // User chose to listen to video; don't play agent TTS.
+        return;
+      }
       setIsAssistantSpeaking(true);
       const ctx = audioContextRef.current;
       nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
@@ -305,6 +457,28 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: 
         else if (fc.name === 'nextStep') triggerNextStep();
         else if (fc.name === 'previousStep') triggerPrevStep();
         else if (fc.name === 'goToStep') triggerGoToStep(fc.args.index as number);
+        else if (fc.name === 'setAudioSource') setAudioSource((fc.args.source === 'video' ? 'video' : 'agent') as 'agent' | 'video');
+        else if (fc.name === 'setVideoPlayback') {
+          const action = (fc.args?.action === 'play' || fc.args?.action === 'stop' ? fc.args.action : 'pause') as 'play' | 'pause' | 'stop';
+          const player = ytPlayerRef.current;
+          if (player) {
+            try {
+              if (action === 'play') player.playVideo?.();
+              else if (action === 'pause') player.pauseVideo?.();
+              else player.stopVideo?.();
+            } catch (_) {}
+          }
+        }
+        else if (fc.name === 'setVideoMute') {
+          const muted = fc.args?.muted === true;
+          const player = ytPlayerRef.current;
+          if (player) {
+            try {
+              if (muted) player.mute?.();
+              else player.unMute?.();
+            } catch (_) {}
+          }
+        }
 
         sessionRef.current?.sendToolResponse({
           functionResponses: { id: fc.id, name: fc.name, response: { result: "ok" } }
@@ -405,23 +579,26 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: 
           tools: [{ functionDeclarations: tools }],
           systemInstruction: `You are the CookAI Assistant for "${recipe.title}". 
           
-          LANGUAGE: Always respond and speak only in ${VOICE_LANGUAGE_OPTIONS.find((o) => o.code === appSettings.voiceLanguage)?.label ?? 'English'}. Use no other language.
+          LANGUAGE: The user may ask or give commands in any language (e.g. Hindi, Spanish). Always understand their intent and carry out the action (next step, pause video, go to step, etc.). Your responses and all speech must be ONLY in ${VOICE_LANGUAGE_OPTIONS.find((o) => o.code === appSettings.voiceLanguage)?.label ?? 'English'}. Do not reply in the user's language—always use ${VOICE_LANGUAGE_OPTIONS.find((o) => o.code === appSettings.voiceLanguage)?.label ?? 'English'} for your output. Recipe steps and UI are in English.
           
-          RECIPE STEPS:
-          ${recipe.steps.map((s, i) => `Step ${i + 1}: ${s}`).join('\n')}
+          STEP LIST (use the [index] in goToStep(index)—ALWAYS call the tool when changing steps):
+          ${recipe.steps.map((s, i) => `[${i}] ${(recipe.stepTimestamps?.[i] ?? '') ? `(${recipe.stepTimestamps[i]}) ` : ''}${s}`).join('\n')}
+          
+          STEP NAVIGATION (MANDATORY—you MUST call the tool, not only describe):
+          - "next", "next step", "go forward" → call nextStep(), then say the new step instruction briefly.
+          - "previous", "previous step", "go back", "last step" → call previousStep(), then say the step instruction briefly.
+          - "go to step N", "step N", "what's step N" → call goToStep(N-1) (step numbers are 1-based; goToStep uses 0-based index).
+          - "when do we [X]", "go to [X]", "the part where we [X]", "what about [ingredient/time]" → find the step whose instruction or timestamp matches [X], then call goToStep(index) with that step's index from the list above. Example: "go to when we add spinach" → find the step that mentions adding spinach, get its [index], call goToStep(index).
+          - "at 2 minutes", "at 1:30", "what happens at [time]" → find the step with that timestamp (or closest) in the list, call goToStep(index).
+          Never only describe a step without calling nextStep, previousStep, or goToStep—the screen and video only update when you call the tool.
+          ${recipe.videoUrl ? `\nVIDEO: Embedded video seeks to the step's timestamp when you call goToStep/nextStep/previousStep. Playback: "pause/stop the video" → setVideoPlayback "pause" or "stop"; "play/resume the video" → setVideoPlayback "play". Volume: "mute the video", "mute video", "turn off video sound" → setVideoMute muted true; "unmute the video", "turn on video sound" → setVideoMute muted false. Audio source: "use video audio" → setAudioSource "video"; "use your voice" → setAudioSource "agent".` : ''}
           
           CRITICAL SYNC & AUDITORY FEEDBACK RULES:
           1. YOU MUST VERBALLY ANNOUNCE EVERY ACTION. Confirmations are required for starting, pausing, stopping timers, setting temperatures, and moving steps.
-          2. Examples of mandatory verbal announcements:
-             - "Starting timer for 10 minutes." / "Starting timer for 30 seconds." / "Starting timer for 2 minutes 30 seconds."
-             - "Timer paused."
-             - "Resuming your timer."
-             - "Timer stopped."
-             - "Setting heat to Medium-High."
-             - For step changes: say "Okay, next step" or "Previous step" ONCE, then state only what to do (the instruction). Do NOT say the step number (e.g. "Step 2") in that same reply.
-          3. WHENEVER you refer to a specific step, call goToStep(index) first.
-          4. NEVER repeat the step number twice. After calling goToStep/nextStep/previousStep, the screen already shows the step—do NOT say "Step N" or "Moving to step N" in your confirmation. Give one short confirmation and only the instruction, e.g. "Okay. Chop the onions."
-          5. NEVER say technical indices like "Index 0". Say "Step 1" only when the user asks which step (and say it once).
+          2. For step changes: call the tool (nextStep/previousStep/goToStep) first, then say "Okay, next step" or "Previous step" or "Going to [that step]" ONCE and state only what to do (the instruction). Do NOT say the step number (e.g. "Step 2") in that same reply.
+          3. WHENEVER the user asks to go to any step (by number, by scenario, or by time), call goToStep(index) with the correct 0-based index from the STEP LIST above.
+          4. NEVER repeat the step number twice. After calling a step tool, give one short confirmation and only the instruction, e.g. "Okay. Chop the onions."
+          5. NEVER say technical indices like "Index 0" to the user. Say "Step 1" only when they ask which step (and say it once).
           6. Respond instantly and concisely.
           7. If noise is high, keep your verbal confirmations short but clear.`,
           outputAudioTranscription: {},
@@ -457,7 +634,17 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: 
         <div className="text-center">
           <h2 className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Step {currentStep + 1} of {stepsCount}</h2>
         </div>
-        <div className="w-6 h-6"></div>
+        {recipe.videoUrl ? (
+          <button
+            onClick={() => setShowEmbeddedVideo((v) => !v)}
+            className={`p-2 rounded-xl transition-colors ${showEmbeddedVideo ? 'bg-red-100 text-red-600' : 'text-stone-400 hover:bg-stone-100'}`}
+            title={showEmbeddedVideo ? 'Hide video' : 'Show video'}
+          >
+            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+          </button>
+        ) : (
+          <div className="w-10" />
+        )}
       </div>
 
       <div className="w-full h-1.5 bg-stone-100">
@@ -468,11 +655,27 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: 
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
+        {showEmbeddedVideo && recipe.videoUrl && videoId && (
+          <div className="w-full h-[200px] rounded-2xl overflow-hidden border border-stone-200 shadow-lg bg-black flex-shrink-0 relative">
+            <div ref={ytContainerRef} className="w-full h-full" />
+          </div>
+        )}
         <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-stone-100 min-h-[160px] flex flex-col justify-center text-center relative overflow-hidden">
           <span className="text-emerald-500 font-black text-[10px] mb-4 uppercase tracking-[0.3em]">Kitchen Guidance</span>
           <h1 className="text-xl md:text-2xl font-bold text-stone-800 leading-snug">
             {recipe.steps[currentStep]}
           </h1>
+          {recipe.videoUrl && recipe.stepTimestamps?.[currentStep] && (
+            <a
+              href={youtubeUrlAtTime(recipe.videoUrl, recipe.stepTimestamps[currentStep])}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-red-600 hover:text-red-700"
+            >
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+              Watch at {recipe.stepTimestamps[currentStep]}
+            </a>
+          )}
         </div>
 
         {aiResponse && (
@@ -544,6 +747,23 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: 
         <div className="text-center text-stone-400 text-[10px] font-black uppercase tracking-widest h-4">
           {isListening ? (isAssistantSpeaking ? "Assistant Speaking" : "Listening...") : "Tap for Hands-Free Mode"}
         </div>
+        {recipe.videoUrl && (
+          <div className="flex items-center justify-center gap-2 mt-2">
+            <span className="text-stone-400 text-[10px] font-bold uppercase">Listen to:</span>
+            <button
+              onClick={() => setAudioSource('agent')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold ${audioSource === 'agent' ? 'bg-emerald-600 text-white' : 'bg-stone-100 text-stone-500'}`}
+            >
+              Agent
+            </button>
+            <button
+              onClick={() => setAudioSource('video')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold ${audioSource === 'video' ? 'bg-red-600 text-white' : 'bg-stone-100 text-stone-500'}`}
+            >
+              Video
+            </button>
+          </div>
+        )}
       </div>
 
       <style>{`
