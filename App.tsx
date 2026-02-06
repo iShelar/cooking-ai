@@ -30,6 +30,8 @@ const BOTTOM_NAV_VIEWS: AppView[] = [
   AppView.CreateFromChat,
 ];
 
+type HistoryState = { view: AppView; recipeId?: string };
+
 const App: React.FC = () => {
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -37,6 +39,8 @@ const App: React.FC = () => {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [scaledRecipe, setScaledRecipe] = useState<Recipe | null>(null);
+  const recipesRef = useRef<Recipe[]>([]);
+  recipesRef.current = recipes;
   const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -95,6 +99,50 @@ const App: React.FC = () => {
     }
     loadData();
   }, [authUser, loadData]);
+
+  // Sync navigation with browser history so back/forward (and swipe-back on mobile) work.
+  const navigateTo = useCallback((view: AppView, recipe?: Recipe | null) => {
+    setCurrentView(view);
+    if (recipe) {
+      setSelectedRecipe(recipe);
+      setScaledRecipe(recipe);
+    } else if (view === AppView.Home || view === AppView.Inventory || view === AppView.Profile || view === AppView.Settings || view === AppView.CreateFromYouTube || view === AppView.CreateFromChat || view === AppView.Scanner) {
+      setSelectedRecipe(null);
+      setScaledRecipe(null);
+    }
+    const state: HistoryState = { view, recipeId: recipe?.id };
+    if (typeof window !== 'undefined' && window.history) {
+      window.history.pushState(state, '', window.location.pathname);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.history) return;
+    if (!window.history.state?.view) {
+      window.history.replaceState({ view: AppView.Home } as HistoryState, '', window.location.pathname);
+    }
+    const onPopState = (e: PopStateEvent) => {
+      const state = e.state as HistoryState | null;
+      if (state?.view) {
+        setCurrentView(state.view);
+        if (state.recipeId) {
+          const recipe = recipesRef.current.find((r) => r.id === state.recipeId);
+          if (recipe) {
+            setSelectedRecipe(recipe);
+            setScaledRecipe(recipe);
+          } else {
+            setSelectedRecipe(null);
+            setScaledRecipe(null);
+          }
+        } else {
+          setSelectedRecipe(null);
+          setScaledRecipe(null);
+        }
+      }
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
   // One-time prompt at start: ask if user wants to use browser language for voice (based on navigator.language).
   useEffect(() => {
@@ -194,25 +242,23 @@ const App: React.FC = () => {
   const handleRecipeClick = (recipe: Recipe) => {
     const updated = { ...recipe, lastViewedAt: new Date().toISOString() };
     setRecipes((prev) => prev.map((r) => (r.id === recipe.id ? updated : r)));
-    setSelectedRecipe(updated);
-    setCurrentView(AppView.RecipeDetail);
     if (authUser) {
       updateRecipeInDB(authUser.uid, updated).catch(() => {});
     }
+    navigateTo(AppView.RecipeDetail, updated);
   };
 
   const goToSetup = () => {
-    setCurrentView(AppView.RecipeSetup);
+    if (selectedRecipe) navigateTo(AppView.RecipeSetup, selectedRecipe);
   };
 
   const onSetupComplete = (newRecipe: Recipe) => {
     const prepared = { ...newRecipe, lastPreparedAt: new Date().toISOString() };
     setRecipes((prev) => prev.map((r) => (r.id === newRecipe.id ? prepared : r)));
-    setScaledRecipe(prepared);
-    setCurrentView(AppView.CookingMode);
     if (authUser) {
       updateRecipeInDB(authUser.uid, prepared).catch(() => {});
     }
+    navigateTo(AppView.CookingMode, prepared);
   };
 
   const handleScannedRecipe = (rec: any) => {
@@ -230,8 +276,7 @@ const App: React.FC = () => {
       ingredients: ['Scanned ingredients used...'],
       steps: ['Step 1: Prep your ingredients', 'Step 2: Cook according to recipe details', 'Step 3: Enjoy!']
     };
-    setSelectedRecipe(newRecipe);
-    setCurrentView(AppView.RecipeDetail);
+    navigateTo(AppView.RecipeDetail, newRecipe);
   };
 
   const addRecipeToShoppingList = useCallback(async () => {
@@ -366,7 +411,7 @@ const App: React.FC = () => {
             className="w-full h-full object-cover"
           />
           <button
-            onClick={() => { setShowShoppingListPrompt(false); setCurrentView(AppView.Home); }}
+            onClick={() => { setShowShoppingListPrompt(false); window.history.back(); }}
             className="absolute top-8 left-6 p-2 bg-white/90 backdrop-blur-sm rounded-xl text-stone-800 shadow-md z-10"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
@@ -454,7 +499,7 @@ const App: React.FC = () => {
                 type="button"
                 onClick={() => {
                   setShowShoppingListPrompt(false);
-                  setCurrentView(AppView.Inventory);
+                  navigateTo(AppView.Inventory);
                 }}
                 className="px-4 py-2 rounded-lg bg-emerald-500 text-white text-sm font-semibold hover:bg-emerald-600 active:scale-[0.98] transition-all"
               >
@@ -539,7 +584,7 @@ const App: React.FC = () => {
           <RecipeSetup
             recipe={selectedRecipe}
             onComplete={onSetupComplete}
-            onCancel={() => setCurrentView(AppView.RecipeDetail)}
+            onCancel={() => window.history.back()}
             appSettings={appSettings}
             userId={authUser.uid}
           />
@@ -549,7 +594,7 @@ const App: React.FC = () => {
         <ErrorBoundary onReset={() => setCurrentView(AppView.RecipeDetail)}>
           <CookingMode
             recipe={scaledRecipe}
-            onExit={() => setCurrentView(AppView.RecipeDetail)}
+            onExit={() => window.history.back()}
             appSettings={appSettings}
             userId={authUser?.uid}
           />
@@ -558,7 +603,7 @@ const App: React.FC = () => {
       {currentView === AppView.Scanner && (
         <ErrorBoundary onReset={() => setCurrentView(AppView.Home)}>
           <IngredientScanner
-            onClose={() => setCurrentView(AppView.Home)}
+            onClose={() => window.history.back()}
             onSelectRecipe={handleScannedRecipe}
           />
         </ErrorBoundary>
@@ -572,8 +617,8 @@ const App: React.FC = () => {
         <ErrorBoundary onReset={() => setCurrentView(AppView.Home)}>
           <Profile
             user={authUser}
-            onBack={() => setCurrentView(AppView.Home)}
-            onOpenSettings={() => setCurrentView(AppView.Settings)}
+            onBack={() => window.history.back()}
+            onOpenSettings={() => navigateTo(AppView.Settings)}
           />
         </ErrorBoundary>
       )}
@@ -581,7 +626,7 @@ const App: React.FC = () => {
         <ErrorBoundary onReset={() => setCurrentView(AppView.Profile)}>
           <Settings
             userId={authUser.uid}
-            onBack={() => setCurrentView(AppView.Profile)}
+            onBack={() => window.history.back()}
             onSaved={(s) => setAppSettings(s)}
             onPreferencesSaved={setUserPreferences}
           />
@@ -595,10 +640,9 @@ const App: React.FC = () => {
             onPreferencesUpdated={setUserPreferences}
             onCreated={(recipe) => {
               setRecipes((prev) => [...prev.filter((r) => r.id !== recipe.id), recipe]);
-              setSelectedRecipe(recipe);
-              setCurrentView(AppView.RecipeDetail);
+              navigateTo(AppView.RecipeDetail, recipe);
             }}
-            onCancel={() => setCurrentView(AppView.Home)}
+            onCancel={() => window.history.back()}
           />
         </ErrorBoundary>
       )}
@@ -610,10 +654,9 @@ const App: React.FC = () => {
             onPreferencesUpdated={setUserPreferences}
             onCreated={(recipe) => {
               setRecipes((prev) => [...prev.filter((r) => r.id !== recipe.id), recipe]);
-              setSelectedRecipe(recipe);
-              setCurrentView(AppView.RecipeDetail);
+              navigateTo(AppView.RecipeDetail, recipe);
             }}
-            onCancel={() => setCurrentView(AppView.Home)}
+            onCancel={() => window.history.back()}
           />
         </ErrorBoundary>
       )}
@@ -622,14 +665,14 @@ const App: React.FC = () => {
         <>
           <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/80 backdrop-blur-md border-t border-stone-200 px-4 py-3 flex items-center justify-between gap-1 z-40">
             <button
-              onClick={() => setCurrentView(AppView.Home)}
+              onClick={() => navigateTo(AppView.Home)}
               className={`p-2 rounded-xl transition-colors ${currentView === AppView.Home ? 'text-emerald-600 bg-emerald-50' : 'text-stone-400'}`}
               title="Home"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7-7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
             </button>
             <button
-              onClick={() => setCurrentView(AppView.Inventory)}
+              onClick={() => navigateTo(AppView.Inventory)}
               className={`p-2 rounded-xl transition-colors ${currentView === AppView.Inventory ? 'text-emerald-600 bg-emerald-50' : 'text-stone-400'}`}
               title="Grocery inventory"
             >
@@ -643,7 +686,7 @@ const App: React.FC = () => {
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
             </button>
             <button
-              onClick={() => setCurrentView(AppView.Profile)}
+              onClick={() => navigateTo(AppView.Profile)}
               className={`p-2 rounded-xl transition-colors ${currentView === AppView.Profile ? 'text-emerald-600 bg-emerald-50' : 'text-stone-400'}`}
               title="Profile"
             >
@@ -664,7 +707,7 @@ const App: React.FC = () => {
                   <button
                     onClick={() => {
                       setShowRecipePrepMenu(false);
-                      setCurrentView(AppView.CreateFromYouTube);
+                      navigateTo(AppView.CreateFromYouTube);
                     }}
                     className="w-full flex items-center gap-3 p-3 rounded-xl text-left hover:bg-stone-50 active:bg-stone-100 transition-colors"
                   >
@@ -679,7 +722,7 @@ const App: React.FC = () => {
                   <button
                     onClick={() => {
                       setShowRecipePrepMenu(false);
-                      setCurrentView(AppView.CreateFromChat);
+                      navigateTo(AppView.CreateFromChat);
                     }}
                     className="w-full flex items-center gap-3 p-3 rounded-xl text-left hover:bg-stone-50 active:bg-stone-100 transition-colors"
                   >
@@ -694,7 +737,7 @@ const App: React.FC = () => {
                   <button
                     onClick={() => {
                       setShowRecipePrepMenu(false);
-                      setCurrentView(AppView.Scanner);
+                      navigateTo(AppView.Scanner);
                     }}
                     className="w-full flex items-center gap-3 p-3 rounded-xl text-left hover:bg-stone-50 active:bg-stone-100 transition-colors"
                   >
