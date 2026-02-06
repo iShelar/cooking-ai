@@ -35,17 +35,13 @@ const Settings: React.FC<SettingsProps> = ({ userId, onBack, onSaved }) => {
     loadSettings();
   }, [userId]);
 
-  const update = (patch: Partial<AppSettings>) => {
-    setSettings((prev) => ({ ...prev, ...patch }));
-  };
-
-  const handleSave = async () => {
+  const saveSettings = async (newSettings: AppSettings) => {
     setSaving(true);
     setSaved(false);
     setSaveError(null);
     try {
-      await saveAppSettings(userId, settings);
-      onSaved?.(settings);
+      await saveAppSettings(userId, newSettings);
+      onSaved?.(newSettings);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {
@@ -54,6 +50,14 @@ const Settings: React.FC<SettingsProps> = ({ userId, onBack, onSaved }) => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const update = (patch: Partial<AppSettings>) => {
+    setSettings((prev) => {
+      const next = { ...prev, ...patch };
+      saveSettings(next);
+      return next;
+    });
   };
 
   if (loading) {
@@ -87,13 +91,9 @@ const Settings: React.FC<SettingsProps> = ({ userId, onBack, onSaved }) => {
           </svg>
         </button>
         <h1 className="text-2xl font-bold text-stone-800 tracking-tight">Settings</h1>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="text-emerald-600 font-semibold text-sm disabled:opacity-50"
-        >
-          {saving ? 'Saving...' : saved ? 'Saved' : 'Save'}
-        </button>
+        <span className="min-w-[5rem] text-right text-sm font-medium text-emerald-600">
+          {saving ? 'Saving...' : saved ? 'Saved' : '\u00A0'}
+        </span>
       </header>
 
       <div className="px-6 space-y-6">

@@ -272,16 +272,7 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
         <div className="w-6"></div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
-        <div className="bg-white rounded-[2rem] p-6 shadow-sm border border-stone-100 flex flex-col items-center text-center gap-4">
-          <div className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border transition-colors ${isListening ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-stone-50 text-stone-400 border-stone-100'}`}>
-            {isConnecting ? "Connecting..." : (isListening ? "Assistant Live" : "Offline")}
-          </div>
-          <p className="text-lg font-bold text-stone-800 leading-tight min-h-[50px] transition-all">
-            {aiText}
-          </p>
-        </div>
-
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-6">
         <div className="space-y-3">
           <h4 className="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em] ml-2">Quick Adjust</h4>
           <div className="flex gap-2">
@@ -315,48 +306,11 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
         </div>
       </div>
 
-      <div className="bg-white border-t border-stone-200 p-8 pb-14 space-y-8 shadow-2xl">
-        <div className="flex flex-col items-center gap-4">
-          <div className="relative">
-            {isListening && (
-              <div 
-                className="absolute inset-0 bg-emerald-400/20 rounded-full animate-ping"
-                style={{ transform: `scale(${2 + inputVolume * 15})` }}
-              ></div>
-            )}
-            <button 
-              onClick={toggleAssistant}
-              disabled={isConnecting}
-              className={`w-20 h-20 rounded-full flex items-center justify-center shadow-xl relative z-10 transition-all active:scale-95 ${isListening ? 'bg-emerald-600 scale-105' : 'bg-emerald-500'} ${isConnecting ? 'opacity-50 animate-pulse' : ''}`}
-            >
-              {isListening ? (
-                <div className="flex gap-1.5 items-center">
-                  {[1, 2, 3].map(i => (
-                    <div 
-                      key={i} 
-                      className="w-1.5 bg-white rounded-full" 
-                      style={{ 
-                        height: isAssistantSpeaking ? '32px' : `${16 + inputVolume * 1000}px`,
-                        maxHeight: '32px',
-                        animation: isAssistantSpeaking ? 'wave 0.5s infinite ease-in-out' : 'none',
-                        animationDelay: `${i * 0.1}s`
-                      }}
-                    ></div>
-                  ))}
-                </div>
-              ) : (
-                <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
-              )}
-            </button>
-          </div>
-          <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest transition-opacity duration-300">
-            {isConnecting ? "Waking up AI..." : (isListening ? "I'm listening..." : "Tap to Speak")}
-          </span>
-        </div>
-
+      <div className="bg-white border-t border-stone-200 p-6 pb-10 shadow-2xl">
+        <p className="text-[11px] text-stone-500 text-center mb-3">Quantities above are used in recipe prep — adjust servings as needed.</p>
         <button 
           onClick={handleFinish}
-          disabled={isSaving || isConnecting}
+          disabled={isSaving}
           className="w-full bg-stone-900 text-white font-black py-4 rounded-2xl shadow-lg active:scale-95 transition-all tracking-widest text-xs uppercase flex items-center justify-center gap-2 disabled:opacity-50"
         >
           {isSaving ? (
@@ -368,9 +322,6 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
         </button>
       </div>
       </div>
-      <style>{`
-        @keyframes wave { 0%, 100% { height: 16px; } 50% { height: 32px; } }
-      `}</style>
     </div>
   );
 };

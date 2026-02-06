@@ -85,8 +85,8 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: 
   const [audioSource, setAudioSource] = useState<'agent' | 'video'>('agent');
   /** Kitchen Guidance accordion: closed by default; user can open it. */
   const [kitchenGuidanceOpen, setKitchenGuidanceOpen] = useState(true);
-  /** Assistant strip: tap to expand for longer replies. */
-  const [assistantExpanded, setAssistantExpanded] = useState(false);
+  /** Assistant strip: open by default so full controls are visible on launch. */
+  const [assistantExpanded, setAssistantExpanded] = useState(true);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioSourceRef = useRef<'agent' | 'video'>('agent');
@@ -103,6 +103,8 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: 
   const captionsScrollRef = useRef<HTMLDivElement>(null);
   const newTurnStartedRef = useRef(true);
   const [ytApiReady, setYtApiReady] = useState(false);
+  /** Increment to force video iframe to be destroyed and recreated (reload without full page refresh). */
+  const [videoReloadKey, setVideoReloadKey] = useState(0);
 
   const stepsCount = recipe.steps.length;
   const videoId = recipe.videoUrl ? getYouTubeVideoId(recipe.videoUrl) : '';
@@ -137,7 +139,7 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: 
     };
   }, []);
 
-  // Create YT player when video is shown; seek when step changes; destroy when hidden.
+  // Create YT player when video is shown; seek when step changes; destroy when hidden. videoReloadKey forces recreate.
   useEffect(() => {
     if (!showEmbeddedVideo || !videoId || !ytContainerRef.current) {
       if (ytPlayerRef.current) {
@@ -152,6 +154,7 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: 
 
     const el = ytContainerRef.current;
     if (!ytPlayerRef.current) {
+      el.innerHTML = '';
       try {
         // Start muted so agent mode is default; user must ask agent to unmute or switch to Video.
         const player = new window.YT!.Player(el, {
@@ -176,7 +179,19 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: 
     try {
       ytPlayerRef.current.seekTo(currentStepSeconds, true);
     } catch (_) {}
-  }, [showEmbeddedVideo, videoId, ytApiReady, currentStep, currentStepSeconds]);
+  }, [showEmbeddedVideo, videoId, ytApiReady, currentStep, currentStepSeconds, videoReloadKey]);
+
+  const handleReloadVideo = useCallback(() => {
+    if (!ytContainerRef.current) return;
+    if (ytPlayerRef.current) {
+      try {
+        ytPlayerRef.current.destroy();
+      } catch (_) {}
+      ytPlayerRef.current = null;
+    }
+    ytContainerRef.current.innerHTML = '';
+    setVideoReloadKey((k) => k + 1);
+  }, []);
 
   // Keep video muted when agent is selected, unmuted when video is selected.
   useEffect(() => {
@@ -701,8 +716,8 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-center overflow-hidden bg-stone-200/40">
-      <div className="w-full max-w-md min-h-full bg-stone-50 shadow-2xl flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 flex justify-center items-center overflow-hidden bg-stone-200/40 h-full min-h-dvh">
+      <div className="w-full max-w-md h-full max-h-full bg-stone-50 shadow-2xl flex flex-col overflow-hidden" style={{ paddingTop: 'env(safe-area-inset-top)', paddingLeft: 'env(safe-area-inset-left)', paddingRight: 'env(safe-area-inset-right)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
       {toolNotification && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[60] animate-in slide-in-from-top-4 fade-in duration-300 pointer-events-none">
           <div className="bg-stone-900 text-white px-5 py-2.5 rounded-full shadow-2xl font-bold text-xs flex items-center gap-2">
@@ -739,9 +754,20 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
         />
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-5 flex flex-col gap-5">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-5 flex flex-col gap-5">
         {showEmbeddedVideo && recipe.videoUrl && videoId && (
           <div className="w-full aspect-video max-h-[220px] rounded-2xl overflow-hidden border border-stone-200/80 shadow-md flex-shrink-0 relative ring-1 ring-stone-200/50 bg-gradient-to-br from-stone-100 to-stone-200">
+            <div className="absolute top-2 right-2 z-20">
+              <button
+                type="button"
+                onClick={handleReloadVideo}
+                className="w-8 h-8 rounded-full bg-black/20 hover:bg-black/30 text-white flex items-center justify-center active:scale-95 transition-transform shadow-sm"
+                title="Reload video"
+                aria-label="Reload video"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+              </button>
+            </div>
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-stone-400 pointer-events-none" aria-hidden>
               <div className="w-14 h-14 rounded-full bg-white/80 shadow-sm flex items-center justify-center">
                 <svg className="w-6 h-6 text-stone-500 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
@@ -760,7 +786,12 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
             aria-expanded={kitchenGuidanceOpen}
             aria-label={kitchenGuidanceOpen ? 'Collapse Kitchen Guidance' : 'Expand Kitchen Guidance'}
           >
-            <span className="text-emerald-600 font-semibold text-[11px] uppercase tracking-wider">Kitchen Guidance</span>
+            <div className="flex flex-col items-start gap-0.5">
+              <span className="text-emerald-600 font-semibold text-[11px] uppercase tracking-wider">Kitchen Guidance</span>
+              {recipe.servings !== appSettings.defaultServings && (
+                <span className="text-[10px] text-stone-500 normal-case">Quantities for {recipe.servings} {recipe.servings === 1 ? 'serving' : 'servings'}</span>
+              )}
+            </div>
             <svg
               className={`w-5 h-5 text-stone-400 flex-shrink-0 transition-transform duration-200 ${kitchenGuidanceOpen ? 'rotate-180' : ''}`}
               fill="none"
@@ -771,7 +802,8 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
             </svg>
           </button>
           {kitchenGuidanceOpen && (
-            <div className="px-5 pb-6 pt-1 border-t border-stone-100 flex flex-col justify-center text-center min-h-[80px]">
+            <div className="px-5 pb-6 pt-1 border-t border-stone-100">
+              <p className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider mb-1">This step</p>
               <p className="text-[15px] leading-relaxed text-stone-700">
                 {recipe.steps[currentStep] ?? 'No step'}
               </p>
@@ -791,10 +823,10 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
               </button>
             </div>
-            <p className="text-[9px] uppercase font-semibold tracking-widest text-stone-500">Step Timer</p>
+            <p className={`text-[9px] uppercase font-semibold tracking-widest ${timerSeconds !== null && timerSeconds > 0 ? 'text-white/90' : 'text-stone-500'}`}>Step Timer</p>
             <button type="button" onClick={handleTimerTap} className="text-left">
               <p className="text-xl font-mono font-bold tabular-nums">{timerSeconds !== null ? formatTime(timerSeconds) : '0:00'}</p>
-              <p className="text-[10px] text-stone-500 mt-0.5">Tap to start 1 min · tap again +1 min</p>
+              <p className={`text-[10px] mt-0.5 ${timerSeconds !== null && timerSeconds > 0 ? 'text-white/90' : 'text-stone-500'}`}>Tap to start 1 min · tap again +1 min</p>
             </button>
           </div>
 
@@ -821,7 +853,7 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
         </div>
       </div>
 
-      <div className="bg-white border-t border-stone-200 flex flex-col flex-shrink-0">
+      <div className="bg-white border-t border-stone-200 flex flex-col flex-shrink-0 min-h-[12rem]">
         <div
           className={`rounded-t-2xl bg-stone-50 border border-stone-200 border-b-0 shadow-sm overflow-hidden flex flex-col captions-panel flex-shrink-0 transition-[max-height] duration-300 ease-out ${assistantExpanded ? 'max-h-[14rem]' : 'max-h-[2.75rem]'}`}
         >
