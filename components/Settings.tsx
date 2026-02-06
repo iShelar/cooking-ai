@@ -1,27 +1,41 @@
 import React, { useState, useEffect } from 'react';
-import { AppSettings, DEFAULT_APP_SETTINGS, VOICE_LANGUAGE_OPTIONS } from '../types';
-import { getAppSettings, saveAppSettings } from '../services/dbService';
+import { AppSettings, DEFAULT_APP_SETTINGS, VOICE_LANGUAGE_OPTIONS, type UserPreferences, DIETARY_OPTIONS, ALLERGY_OPTIONS } from '../types';
+import { getAppSettings, saveAppSettings, getPreferences, savePreferences } from '../services/dbService';
 
 interface SettingsProps {
   userId: string;
   onBack: () => void;
   onSaved?: (settings: AppSettings) => void;
+  onPreferencesSaved?: (prefs: UserPreferences) => void;
 }
 
-const Settings: React.FC<SettingsProps> = ({ userId, onBack, onSaved }) => {
+const defaultPrefs: UserPreferences = {
+  dietary: [],
+  allergies: [],
+  skillLevel: 'Beginner',
+};
+
+const Settings: React.FC<SettingsProps> = ({ userId, onBack, onSaved, onPreferencesSaved }) => {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
+  const [preferences, setPreferences] = useState<UserPreferences>(defaultPrefs);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [alternativesText, setAlternativesText] = useState('');
 
   const loadSettings = async () => {
     setLoadError(null);
     setLoading(true);
     try {
-      const stored = await getAppSettings(userId);
+      const [stored, prefs] = await Promise.all([
+        getAppSettings(userId),
+        getPreferences(userId),
+      ]);
       setSettings(stored);
+      setPreferences(prefs ?? defaultPrefs);
+      setAlternativesText((prefs?.alternatives ?? []).join(', '));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load settings.';
       setLoadError(message);
@@ -58,6 +72,35 @@ const Settings: React.FC<SettingsProps> = ({ userId, onBack, onSaved }) => {
       saveSettings(next);
       return next;
     });
+  };
+
+  const toggleDietary = (value: string) => {
+    const next = preferences.dietary.includes(value)
+      ? preferences.dietary.filter((x) => x !== value)
+      : [...preferences.dietary, value];
+    savePrefs({ ...preferences, dietary: next });
+    setPreferences((p) => ({ ...p, dietary: next }));
+  };
+
+  const toggleAllergy = (value: string) => {
+    const next = preferences.allergies.includes(value)
+      ? preferences.allergies.filter((x) => x !== value)
+      : [...preferences.allergies, value];
+    savePrefs({ ...preferences, allergies: next });
+    setPreferences((p) => ({ ...p, allergies: next }));
+  };
+
+  const savePrefs = async (prefs: UserPreferences) => {
+    try {
+      await savePreferences(userId, prefs);
+      onPreferencesSaved?.(prefs);
+    } catch (_) {}
+  };
+
+  const handleAlternativesBlur = () => {
+    const alternatives = alternativesText.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+    savePrefs({ ...preferences, alternatives: alternatives.length > 0 ? alternatives : undefined });
+    setPreferences((p) => ({ ...p, alternatives: alternatives.length > 0 ? alternatives : undefined }));
   };
 
   if (loading) {
@@ -97,6 +140,57 @@ const Settings: React.FC<SettingsProps> = ({ userId, onBack, onSaved }) => {
       </header>
 
       <div className="px-6 space-y-6">
+        <section className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
+          <h2 className="text-sm font-semibold text-stone-400 uppercase tracking-wider px-6 py-3 border-b border-stone-100">
+            Dietary & preferences
+          </h2>
+          <p className="px-6 py-2 text-sm text-stone-500">Used when generating recipes from chat or YouTube.</p>
+          <div className="px-6 pb-4 space-y-3">
+            <p className="text-xs font-medium text-stone-500">Dietary</p>
+            <div className="flex flex-wrap gap-2">
+              {DIETARY_OPTIONS.map((opt) => (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => toggleDietary(opt)}
+                  className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+                    preferences.dietary.includes(opt) ? 'bg-emerald-600 text-white' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                  }`}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs font-medium text-stone-500 pt-2">Allergies / avoid</p>
+            <div className="flex flex-wrap gap-2">
+              {ALLERGY_OPTIONS.map((opt) => (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => toggleAllergy(opt)}
+                  className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+                    preferences.allergies.includes(opt) ? 'bg-amber-500 text-white' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                  }`}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+            <div>
+              <label htmlFor="settings-alternatives" className="block text-xs font-medium text-stone-500 mb-1">Substitutions (e.g. oat milk for dairy)</label>
+              <input
+                id="settings-alternatives"
+                type="text"
+                value={alternativesText}
+                onChange={(e) => setAlternativesText(e.target.value)}
+                onBlur={handleAlternativesBlur}
+                placeholder="Comma-separated"
+                className="w-full bg-stone-100 rounded-xl py-2 px-4 text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+          </div>
+        </section>
+
         <section className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
           <h2 className="text-sm font-semibold text-stone-400 uppercase tracking-wider px-6 py-3 border-b border-stone-100">
             Cooking

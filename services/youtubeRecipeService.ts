@@ -71,14 +71,33 @@ export function parseTimestampJson(jsonString: string): YouTubeTimestampResult {
   return result;
 }
 
+/** Options to adapt the recipe to the user's diet. */
+export interface RecipeGenerationOptions {
+  dietary?: string[];
+  allergies?: string[];
+  alternatives?: string[];
+}
+
 /** Build a Recipe from a timestamp result using Gemini; each step has a timestamp from the transcript. */
-export async function recipeFromTimestampResult(result: YouTubeTimestampResult): Promise<Recipe> {
+export async function recipeFromTimestampResult(
+  result: YouTubeTimestampResult,
+  options?: RecipeGenerationOptions
+): Promise<Recipe> {
   const ai = getGeminiInstance();
   const segmentSummary = result.segments
     .map((s) => `[${s.timestamp}] ${s.content}`)
     .join("\n");
 
-  const prompt = `You are given a video transcript with timestamps. Create a single recipe.
+  let constraints = "";
+  if (options?.dietary?.length || options?.allergies?.length || options?.alternatives?.length) {
+    const parts: string[] = [];
+    if (options.dietary?.length) parts.push(`Dietary: ${options.dietary.join(", ")}. Adapt the recipe to respect these.`);
+    if (options.allergies?.length) parts.push(`Strictly avoid (allergies): ${options.allergies.join(", ")}. Do not include these.`);
+    if (options.alternatives?.length) parts.push(`Use these substitutions where applicable: ${options.alternatives.join("; ")}.`);
+    constraints = `\n\nImportant: ${parts.join(" ")}`;
+  }
+
+  const prompt = `You are given a video transcript with timestamps. Create a single recipe.${constraints}
 
 Video summary: ${result.summary}
 

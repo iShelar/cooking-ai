@@ -26,6 +26,7 @@ export const getPreferences = async (userId: string): Promise<UserPreferences | 
     return {
       dietary: Array.isArray(data?.dietary) ? data.dietary : [],
       allergies: Array.isArray(data?.allergies) ? data.allergies : [],
+      alternatives: Array.isArray(data?.alternatives) ? data.alternatives : undefined,
       skillLevel: (data?.skillLevel as UserPreferences['skillLevel']) ?? 'Beginner',
     };
   } catch (err) {
@@ -36,7 +37,16 @@ export const getPreferences = async (userId: string): Promise<UserPreferences | 
 
 export const savePreferences = async (userId: string, prefs: UserPreferences): Promise<void> => {
   const ref = doc(db, 'users', userId, 'preferences', 'user');
-  await setDoc(ref, prefs, { merge: true });
+  // Firestore does not allow undefined; omit undefined fields.
+  const data: Record<string, unknown> = {
+    dietary: prefs.dietary,
+    allergies: prefs.allergies,
+    skillLevel: prefs.skillLevel,
+  };
+  if (prefs.alternatives !== undefined && prefs.alternatives !== null) {
+    data.alternatives = prefs.alternatives;
+  }
+  await setDoc(ref, data, { merge: true });
 };
 
 /** App settings: users/{userId}/appSettings (single doc) */

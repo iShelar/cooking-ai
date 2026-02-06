@@ -39,15 +39,14 @@ To use **Create from YouTube** (turn a cooking video into a recipe with step tim
 <!-- Features -->
 ## Features to be added:
 
-1. Dietary option - when generating recipe through chat / youtube video that time we 
-will ask few questions if they wanna skip.
+1. ~~Dietary option~~ **Done** – At start, a one-time optional survey asks for dietary preferences and allergies (skippable). You can update them anytime in **Settings → Dietary & preferences**. When creating a recipe from **chat** or **YouTube**, you can choose to use saved preferences or skip for that recipe, and add extra alternatives (e.g. oat milk, gluten-free pasta) for that recipe only.
 5. Fix performance issue and also UI bugs - Not hearing the voice when noise is there 
 + Should respond quickly.
 <!-- 6. Search functionality -->
 <!-- 7. Instagram - Feature scope -->
 8. Voice command - fully automate
 <!-- 9. Voice icon - sticky on corner. -->
-10. Once done - we will use inventory items and save it at end.
+<!-- 10. Once done - we will use inventory items and save it at end. -->
 11. Bugs - on mobile device - not able to start the video using voice.
 <!-- 12. Generate recipes using prompt. -->
 <!-- 13. Fix youtube recipe generation flow. -->

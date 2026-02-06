@@ -5,18 +5,29 @@ import {
   type YouTubeTimestampResult,
 } from "../services/youtubeRecipeService";
 import { updateRecipeInDB } from "../services/dbService";
-import type { Recipe } from "../types";
+import type { Recipe, UserPreferences } from "../types";
 
 interface CreateFromYouTubeProps {
   userId: string;
+  savedPreferences: UserPreferences | null;
+  onPreferencesUpdated?: (prefs: UserPreferences) => void;
   onCreated: (recipe: Recipe) => void;
   onCancel: () => void;
 }
 
 type Step = "idle" | "fetching" | "creating" | "saving" | "success" | "error";
 
-const CreateFromYouTube: React.FC<CreateFromYouTubeProps> = ({ userId, onCreated, onCancel }) => {
+const CreateFromYouTube: React.FC<CreateFromYouTubeProps> = ({
+  userId,
+  savedPreferences,
+  onCreated,
+  onCancel,
+}) => {
   const [url, setUrl] = useState("");
+  const [dietaryChoice, setDietaryChoice] = useState<"use" | "skip">(
+    savedPreferences && (savedPreferences.dietary?.length > 0 || savedPreferences.allergies?.length > 0) ? "use" : "skip"
+  );
+  const [alternativesForThis, setAlternativesForThis] = useState("");
   const [step, setStep] = useState<Step>("idle");
   const [progress, setProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState("");
@@ -59,7 +70,18 @@ const CreateFromYouTube: React.FC<CreateFromYouTubeProps> = ({ userId, onCreated
       setStep("creating");
       setStatusMessage(getMessageForStep("creating"));
 
-      const recipe = await recipeFromTimestampResult(timestampResult);
+      const options =
+        dietaryChoice === "use" && savedPreferences
+          ? {
+              dietary: savedPreferences.dietary,
+              allergies: savedPreferences.allergies,
+              alternatives: [
+                ...(savedPreferences.alternatives ?? []),
+                ...alternativesForThis.split(/[,;]/).map((s) => s.trim()).filter(Boolean),
+              ],
+            }
+          : undefined;
+      const recipe = await recipeFromTimestampResult(timestampResult, options);
       setProgress(80);
       setStep("saving");
       setStatusMessage(getMessageForStep("saving"));
@@ -103,6 +125,41 @@ const CreateFromYouTube: React.FC<CreateFromYouTubeProps> = ({ userId, onCreated
       <p className="text-stone-500 text-sm mb-6">
         Paste a YouTube cooking video link below. We’ll get timestamps and turn it into a recipe with step-by-step video links.
       </p>
+
+      {(savedPreferences?.dietary?.length || savedPreferences?.allergies?.length) ? (
+        <div className="mb-6 p-4 bg-white rounded-2xl border border-stone-100 shadow-sm space-y-3">
+          <p className="text-sm font-medium text-stone-700">Use your saved dietary preferences for this recipe?</p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setDietaryChoice("use")}
+              className={`rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
+                dietaryChoice === "use" ? "bg-emerald-600 text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+              }`}
+            >
+              Use saved
+            </button>
+            <button
+              type="button"
+              onClick={() => setDietaryChoice("skip")}
+              className={`rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
+                dietaryChoice === "skip" ? "bg-stone-800 text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+              }`}
+            >
+              Skip for this recipe
+            </button>
+          </div>
+          {dietaryChoice === "use" && (
+            <input
+              type="text"
+              value={alternativesForThis}
+              onChange={(e) => setAlternativesForThis(e.target.value)}
+              placeholder="Add alternatives for this recipe (e.g. oat milk, gluten-free pasta)"
+              className="w-full bg-stone-100 rounded-xl py-2 px-4 text-sm placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          )}
+        </div>
+      ) : null}
 
       <div className="space-y-4 mb-6">
         <input

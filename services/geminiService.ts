@@ -111,8 +111,18 @@ export const getRecipeRecommendations = async (ingredients: string[]) => {
   return JSON.parse(response.text || '[]');
 };
 
+/** Options to adapt the generated recipe to the user's diet. */
+export interface RecipeGenerationOptions {
+  dietary?: string[];
+  allergies?: string[];
+  alternatives?: string[];
+}
+
 /** Generate a full recipe from a short description or dish name (e.g. "pasta carbonara", "quick egg breakfast"). */
-export const generateRecipeFromDescription = async (description: string): Promise<{
+export const generateRecipeFromDescription = async (
+  description: string,
+  options?: RecipeGenerationOptions
+): Promise<{
   title: string;
   description: string;
   prepTime: string;
@@ -122,7 +132,21 @@ export const generateRecipeFromDescription = async (description: string): Promis
   steps: string[];
 }> => {
   const ai = getGeminiInstance();
-  const prompt = `The user wants to cook something. They said: "${description.trim()}"
+  let constraints = "";
+  if (options?.dietary?.length || options?.allergies?.length || options?.alternatives?.length) {
+    const parts: string[] = [];
+    if (options.dietary?.length) {
+      parts.push(`Dietary: ${options.dietary.join(", ")}. The recipe must respect these.`);
+    }
+    if (options.allergies?.length) {
+      parts.push(`Strictly avoid (allergies): ${options.allergies.join(", ")}. Do not include these ingredients.`);
+    }
+    if (options.alternatives?.length) {
+      parts.push(`Use these substitutions where applicable: ${options.alternatives.join("; ")}.`);
+    }
+    constraints = `\n\nImportant constraints:\n${parts.join("\n")}`;
+  }
+  const prompt = `The user wants to cook something. They said: "${description.trim()}"${constraints}
 
 Create a single, practical recipe they can follow. Return a JSON object with:
 - title: short recipe title (e.g. "Pasta Carbonara")

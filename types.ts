@@ -40,7 +40,48 @@ export interface Ingredient {
 export interface UserPreferences {
   dietary: string[];
   allergies: string[];
+  /** Free-form substitutions, e.g. "oat milk instead of dairy", "gluten-free pasta" */
+  alternatives?: string[];
   skillLevel: 'Beginner' | 'Intermediate' | 'Advanced';
+}
+
+/** Common options for dietary survey and settings. */
+export const DIETARY_OPTIONS = [
+  'Vegetarian',
+  'Vegan',
+  'Gluten-free',
+  'Dairy-free',
+  'Keto',
+  'Low-carb',
+  'Halal',
+  'Kosher',
+  'No pork',
+  'Pescatarian',
+] as const;
+
+export const ALLERGY_OPTIONS = [
+  'Nuts',
+  'Peanuts',
+  'Shellfish',
+  'Eggs',
+  'Dairy',
+  'Gluten',
+  'Soy',
+  'Sesame',
+  'Other',
+] as const;
+
+const DIETARY_SURVEY_STORAGE_KEY = 'cookai_dietary_survey_shown';
+
+export function hasShownDietarySurvey(): boolean {
+  if (typeof localStorage === 'undefined') return true;
+  return localStorage.getItem(DIETARY_SURVEY_STORAGE_KEY) === '1';
+}
+
+export function setDietarySurveyShown(): void {
+  try {
+    localStorage.setItem(DIETARY_SURVEY_STORAGE_KEY, '1');
+  } catch (_) {}
 }
 
 /** Single grocery/inventory item for the user's list. */

@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { AppView, Recipe, AppSettings, DEFAULT_APP_SETTINGS, VOICE_LANGUAGE_OPTIONS, getBrowserVoiceLanguage, hasShownLanguagePrompt, setLanguagePromptShown } from './types';
+import { AppView, Recipe, AppSettings, DEFAULT_APP_SETTINGS, VOICE_LANGUAGE_OPTIONS, getBrowserVoiceLanguage, hasShownLanguagePrompt, setLanguagePromptShown, hasShownDietarySurvey, setDietarySurveyShown } from './types';
+import type { UserPreferences } from './types';
 import RecipeCard from './components/RecipeCard';
 import CookingMode from './components/CookingMode';
 import RecipeSetup from './components/RecipeSetup';
@@ -11,9 +12,10 @@ import Login from './components/Login';
 import Profile from './components/Profile';
 import Settings from './components/Settings';
 import Inventory from './components/Inventory';
+import DietarySurvey from './components/DietarySurvey';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { DEFAULT_RECIPE_IMAGE } from './constants';
-import { getAllRecipes, getAppSettings, saveAppSettings, updateRecipeInDB, getInventory, addShoppingListItems } from './services/dbService';
+import { getAllRecipes, getAppSettings, saveAppSettings, getPreferences, savePreferences, updateRecipeInDB, getInventory, addShoppingListItems } from './services/dbService';
 import { getMissingIngredientsForRecipe } from './services/shoppingListService';
 import { subscribeToAuthState } from './services/authService';
 import type { User } from 'firebase/auth';
@@ -48,6 +50,11 @@ const App: React.FC = () => {
   /** Toast after adding recipe to shopping list. */
   const [shoppingListToast, setShoppingListToast] = useState<string | null>(null);
   const [shoppingListAdding, setShoppingListAdding] = useState(false);
+  /** User dietary/allergy preferences (loaded with app data). */
+  const [userPreferences, setUserPreferences] = useState<UserPreferences | null>(null);
+  /** Show one-time dietary survey (after language prompt if that was shown). */
+  const [showDietarySurvey, setShowDietarySurvey] = useState(false);
+  const dietarySurveyCheckedRef = useRef(false);
 
   useEffect(() => {
     const unsubscribe = subscribeToAuthState((user) => {
@@ -63,12 +70,14 @@ const App: React.FC = () => {
     setIsLoading(true);
     try {
       const uid = authUser.uid;
-      const [dbRecipes, dbSettings] = await Promise.all([
+      const [dbRecipes, dbSettings, dbPrefs] = await Promise.all([
         getAllRecipes(uid),
         getAppSettings(uid),
+        getPreferences(uid),
       ]);
       setRecipes(dbRecipes);
       setAppSettings(dbSettings);
+      setUserPreferences(dbPrefs);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load recipes and settings.";
       setLoadError(message);
@@ -94,6 +103,14 @@ const App: React.FC = () => {
     if (detected) setLanguagePromptOption(detected);
   }, [authChecked, authUser, isLoading]);
 
+  // One-time dietary survey at start (after language prompt is dismissed, or if no language prompt).
+  useEffect(() => {
+    if (!authUser || isLoading || dietarySurveyCheckedRef.current || hasShownDietarySurvey()) return;
+    if (languagePromptOption) return; // Wait until language prompt is gone.
+    dietarySurveyCheckedRef.current = true;
+    setShowDietarySurvey(true);
+  }, [authUser, isLoading, languagePromptOption]);
+
   const handleUseDetectedLanguage = useCallback(() => {
     if (!languagePromptOption) return;
     const next = { ...appSettings, voiceLanguage: languagePromptOption.code };
@@ -108,6 +125,23 @@ const App: React.FC = () => {
   const handleKeepCurrentLanguage = useCallback(() => {
     setLanguagePromptShown();
     setLanguagePromptOption(null);
+  }, []);
+
+  const handleDietarySurveySave = useCallback(
+    async (prefs: UserPreferences) => {
+      if (authUser) {
+        await savePreferences(authUser.uid, prefs);
+        setUserPreferences(prefs);
+      }
+      setDietarySurveyShown();
+      setShowDietarySurvey(false);
+    },
+    [authUser]
+  );
+
+  const handleDietarySurveySkip = useCallback(() => {
+    setDietarySurveyShown();
+    setShowDietarySurvey(false);
   }, []);
 
   const filteredRecipes = useMemo(() => {
@@ -455,6 +489,13 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
+      {showDietarySurvey && (
+        <DietarySurvey
+          initialPreferences={userPreferences}
+          onSave={handleDietarySurveySave}
+          onSkip={handleDietarySurveySkip}
+        />
+      )}
       {currentView === AppView.Home && (
         <ErrorBoundary>
           {renderHome()}
@@ -514,6 +555,7 @@ const App: React.FC = () => {
             userId={authUser.uid}
             onBack={() => setCurrentView(AppView.Profile)}
             onSaved={(s) => setAppSettings(s)}
+            onPreferencesSaved={setUserPreferences}
           />
         </ErrorBoundary>
       )}
@@ -521,6 +563,8 @@ const App: React.FC = () => {
         <ErrorBoundary onReset={() => setCurrentView(AppView.Home)}>
           <CreateFromYouTube
             userId={authUser.uid}
+            savedPreferences={userPreferences}
+            onPreferencesUpdated={setUserPreferences}
             onCreated={(recipe) => {
               setRecipes((prev) => [...prev.filter((r) => r.id !== recipe.id), recipe]);
               setSelectedRecipe(recipe);
@@ -534,6 +578,8 @@ const App: React.FC = () => {
         <ErrorBoundary onReset={() => setCurrentView(AppView.Home)}>
           <CreateFromChat
             userId={authUser.uid}
+            savedPreferences={userPreferences}
+            onPreferencesUpdated={setUserPreferences}
             onCreated={(recipe) => {
               setRecipes((prev) => [...prev.filter((r) => r.id !== recipe.id), recipe]);
               setSelectedRecipe(recipe);
