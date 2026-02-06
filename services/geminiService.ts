@@ -46,6 +46,59 @@ export const getRecipeRecommendations = async (ingredients: string[]) => {
   return JSON.parse(response.text || '[]');
 };
 
+/** Generate a full recipe from a short description or dish name (e.g. "pasta carbonara", "quick egg breakfast"). */
+export const generateRecipeFromDescription = async (description: string): Promise<{
+  title: string;
+  description: string;
+  prepTime: string;
+  cookTime: string;
+  difficulty: string;
+  ingredients: string[];
+  steps: string[];
+}> => {
+  const ai = getGeminiInstance();
+  const prompt = `The user wants to cook something. They said: "${description.trim()}"
+
+Create a single, practical recipe they can follow. Return a JSON object with:
+- title: short recipe title (e.g. "Pasta Carbonara")
+- description: 1–2 sentence description of the dish
+- prepTime: e.g. "10 min"
+- cookTime: e.g. "15 min"
+- difficulty: exactly one of "Easy", "Medium", "Hard"
+- ingredients: array of strings with quantities (e.g. "200g spaghetti", "2 eggs", "50g pancetta")
+- steps: array of strings, each one clear cooking instruction in order
+
+If the description is vague (e.g. "something quick"), pick a popular, simple dish that fits. Keep steps concise and actionable.`;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-2.5-flash",
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          title: { type: Type.STRING },
+          description: { type: Type.STRING },
+          prepTime: { type: Type.STRING },
+          cookTime: { type: Type.STRING },
+          difficulty: { type: Type.STRING },
+          ingredients: { type: Type.ARRAY, items: { type: Type.STRING } },
+          steps: { type: Type.ARRAY, items: { type: Type.STRING } },
+        },
+        required: ["title", "description", "prepTime", "cookTime", "difficulty", "ingredients", "steps"],
+      },
+    },
+  });
+
+  const raw = response.text ?? "{}";
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error("Could not generate recipe. Please try again.");
+  }
+};
+
 // Utils for Audio Encoding/Decoding for Live API
 export function decode(base64: string) {
   const binaryString = atob(base64);

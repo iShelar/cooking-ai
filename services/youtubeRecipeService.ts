@@ -1,5 +1,6 @@
 import { Type } from "@google/genai";
 import { getGeminiInstance } from "./geminiService";
+import { DEFAULT_RECIPE_IMAGE } from "../constants";
 import type { Recipe, VideoTimestampSegment } from "../types";
 
 const TIMESTAMP_CACHE_KEY = "cookai_yt_timestamps_cache";
@@ -172,7 +173,7 @@ Create one step per main action. Each step's timestamp must come from the transc
     difficulty:
       parsed.difficulty === "Hard" || parsed.difficulty === "Medium" ? parsed.difficulty : "Easy",
     servings: 2,
-    image: thumbnail || `https://picsum.photos/seed/${recipeId}/800/600`,
+    image: thumbnail || DEFAULT_RECIPE_IMAGE,
     ingredients: Array.isArray(parsed.ingredients) ? parsed.ingredients : [],
     steps,
     videoUrl: result.videoUrl,

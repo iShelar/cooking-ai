@@ -24,6 +24,10 @@ export interface Recipe {
   stepTimestamps?: string[];
   /** Full transcript segments for agent Q&A (e.g. "what happens at 2:30?"). */
   videoSegments?: VideoTimestampSegment[];
+  /** When the recipe was last prepared (entered cooking mode). ISO date string. */
+  lastPreparedAt?: string;
+  /** When the recipe was last viewed (opened detail). ISO date string. */
+  lastViewedAt?: string;
 }
 
 export interface Ingredient {
@@ -98,6 +102,7 @@ export enum AppView {
   CookingMode = 'cooking-mode',
   Scanner = 'scanner',
   CreateFromYouTube = 'create-from-youtube',
+  CreateFromChat = 'create-from-chat',
   Inventory = 'inventory',
   Profile = 'profile',
   Settings = 'settings',

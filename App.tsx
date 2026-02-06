@@ -1,16 +1,18 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppView, Recipe, AppSettings, DEFAULT_APP_SETTINGS } from './types';
 import RecipeCard from './components/RecipeCard';
 import CookingMode from './components/CookingMode';
 import RecipeSetup from './components/RecipeSetup';
 import IngredientScanner from './components/IngredientScanner';
 import CreateFromYouTube from './components/CreateFromYouTube';
+import CreateFromChat from './components/CreateFromChat';
 import Login from './components/Login';
 import Profile from './components/Profile';
 import Settings from './components/Settings';
-import { getAllRecipes, getAppSettings } from './services/dbService';
-import { subscribeToAuthState, signOut } from './services/authService';
+import { DEFAULT_RECIPE_IMAGE } from './constants';
+import { getAllRecipes, getAppSettings, updateRecipeInDB } from './services/dbService';
+import { subscribeToAuthState } from './services/authService';
 import type { User } from 'firebase/auth';
 
 const BOTTOM_NAV_VIEWS: AppView[] = [
@@ -20,6 +22,7 @@ const BOTTOM_NAV_VIEWS: AppView[] = [
   AppView.RecipeDetail,
   AppView.RecipeSetup,
   AppView.CreateFromYouTube,
+  AppView.CreateFromChat,
 ];
 
 const App: React.FC = () => {
@@ -31,6 +34,9 @@ const App: React.FC = () => {
   const [scaledRecipe, setScaledRecipe] = useState<Recipe | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [showRecipePrepMenu, setShowRecipePrepMenu] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     const unsubscribe = subscribeToAuthState((user) => {
@@ -40,33 +46,68 @@ const App: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
+  const loadData = useCallback(async () => {
+    if (!authUser) return;
+    setLoadError(null);
+    setIsLoading(true);
+    try {
+      const uid = authUser.uid;
+      const [dbRecipes, dbSettings] = await Promise.all([
+        getAllRecipes(uid),
+        getAppSettings(uid),
+      ]);
+      setRecipes(dbRecipes);
+      setAppSettings(dbSettings);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to load recipes and settings.";
+      setLoadError(message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [authUser]);
+
   useEffect(() => {
     if (!authUser) {
       setIsLoading(false);
       return;
     }
-    setIsLoading(true);
-    const loadData = async () => {
-      try {
-        const uid = authUser.uid;
-        const [dbRecipes, dbSettings] = await Promise.all([
-          getAllRecipes(uid),
-          getAppSettings(uid),
-        ]);
-        setRecipes(dbRecipes);
-        setAppSettings(dbSettings);
-      } catch (err) {
-        console.error("Failed to load data", err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
     loadData();
-  }, [authUser]);
+  }, [authUser, loadData]);
+
+  const filteredRecipes = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const list = q
+      ? recipes.filter((r) => {
+          const title = (r.title ?? '').toLowerCase();
+          const description = (r.description ?? '').toLowerCase();
+          const ingredients = Array.isArray(r.ingredients) ? r.ingredients : [];
+          return (
+            title.includes(q) ||
+            description.includes(q) ||
+            ingredients.some((ing) => String(ing).toLowerCase().includes(q))
+          );
+        })
+      : [...recipes];
+    // Sort: recently prepared first, then recently viewed (both descending)
+    list.sort((a, b) => {
+      const aPrepared = a.lastPreparedAt ?? '';
+      const bPrepared = b.lastPreparedAt ?? '';
+      if (aPrepared !== bPrepared) return bPrepared.localeCompare(aPrepared);
+      const aViewed = a.lastViewedAt ?? '';
+      const bViewed = b.lastViewedAt ?? '';
+      return bViewed.localeCompare(aViewed);
+    });
+    return list;
+  }, [recipes, searchQuery]);
 
   const handleRecipeClick = (recipe: Recipe) => {
-    setSelectedRecipe(recipe);
+    const updated = { ...recipe, lastViewedAt: new Date().toISOString() };
+    setRecipes((prev) => prev.map((r) => (r.id === recipe.id ? updated : r)));
+    setSelectedRecipe(updated);
     setCurrentView(AppView.RecipeDetail);
+    if (authUser) {
+      updateRecipeInDB(authUser.uid, updated).catch(() => {});
+    }
   };
 
   const goToSetup = () => {
@@ -74,9 +115,13 @@ const App: React.FC = () => {
   };
 
   const onSetupComplete = (newRecipe: Recipe) => {
-    setScaledRecipe(newRecipe);
-    setRecipes(prev => prev.map(r => r.id === newRecipe.id ? newRecipe : r));
+    const prepared = { ...newRecipe, lastPreparedAt: new Date().toISOString() };
+    setRecipes((prev) => prev.map((r) => (r.id === newRecipe.id ? prepared : r)));
+    setScaledRecipe(prepared);
     setCurrentView(AppView.CookingMode);
+    if (authUser) {
+      updateRecipeInDB(authUser.uid, prepared).catch(() => {});
+    }
   };
 
   const handleScannedRecipe = (rec: any) => {
@@ -86,7 +131,7 @@ const App: React.FC = () => {
       id: rec.id || Math.random().toString(),
       title: rec.title,
       description: rec.description,
-      image: `https://picsum.photos/seed/${rec.title}/800/600`,
+      image: DEFAULT_RECIPE_IMAGE,
       difficulty: 'Medium',
       cookTime: '20 min',
       prepTime: '10 min',
@@ -110,6 +155,25 @@ const App: React.FC = () => {
   if (!authChecked) return renderLoading('Loading...');
   if (!authUser) return <Login onSuccess={() => {}} />;
   if (isLoading) return renderLoading('Initializing...');
+  if (loadError) {
+    return (
+      <div className="max-w-md mx-auto min-h-screen bg-[#fcfcf9] flex flex-col items-center justify-center px-6">
+        <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mb-6">
+          <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        </div>
+        <h2 className="text-lg font-bold text-stone-800 text-center mb-2">Couldn't load your data</h2>
+        <p className="text-stone-500 text-sm text-center mb-6">{loadError}</p>
+        <button
+          onClick={() => loadData()}
+          className="px-6 py-3 bg-emerald-600 text-white font-semibold rounded-2xl hover:bg-emerald-700 active:scale-[0.98] transition-all"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
 
   const renderHome = () => (
     <div className="space-y-8 pb-24">
@@ -125,6 +189,8 @@ const App: React.FC = () => {
           </span>
           <input
             type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search recipes or ingredients..."
             className="w-full bg-stone-100 rounded-2xl py-3 pl-12 pr-4 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all text-sm"
           />
@@ -133,43 +199,17 @@ const App: React.FC = () => {
 
       <section className="px-6 space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-stone-800">Local SQLite Collection</h2>
+          <h2 className="text-lg font-bold text-stone-800">My Recipes</h2>
           <button className="text-emerald-500 text-sm font-semibold">Sync</button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {recipes.map(recipe => (
+          {filteredRecipes.map(recipe => (
             <RecipeCard key={recipe.id} recipe={recipe} onClick={handleRecipeClick} />
           ))}
         </div>
-      </section>
-
-      <section className="px-6 space-y-4">
-        <div
-          onClick={() => setCurrentView(AppView.CreateFromYouTube)}
-          className="bg-stone-800 rounded-[2.5rem] p-8 text-white flex items-center justify-between shadow-xl cursor-pointer hover:bg-stone-700 active:scale-[0.98] transition-all overflow-hidden relative group"
-        >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/10 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-700"></div>
-          <div className="space-y-1 relative z-10">
-            <h3 className="font-bold text-xl">Create from YouTube</h3>
-            <p className="text-stone-300 text-sm opacity-80 leading-tight">Turn a cooking video into a recipe<br />with step timestamps</p>
-          </div>
-          <div className="bg-white text-red-600 p-4 rounded-2xl shadow-lg relative z-10">
-            <svg className="w-7 h-7" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
-          </div>
-        </div>
-        <div
-          onClick={() => setCurrentView(AppView.Scanner)}
-          className="bg-emerald-900 rounded-[2.5rem] p-8 text-white flex items-center justify-between shadow-xl cursor-pointer hover:bg-emerald-800 active:scale-[0.98] transition-all overflow-hidden relative group"
-        >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-700"></div>
-          <div className="space-y-1 relative z-10">
-            <h3 className="font-bold text-xl">Scan Ingredients</h3>
-            <p className="text-emerald-200 text-sm opacity-80 leading-tight">AI will suggest what to cook<br />based on your pantry</p>
-          </div>
-          <div className="bg-white text-emerald-900 p-4 rounded-2xl shadow-lg relative z-10">
-            <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-          </div>
-        </div>
+        {searchQuery.trim() && filteredRecipes.length === 0 && (
+          <p className="text-stone-500 text-sm py-4">No recipes match &quot;{searchQuery.trim()}&quot;.</p>
+        )}
       </section>
     </div>
   );
@@ -224,18 +264,6 @@ const App: React.FC = () => {
               ))}
             </ul>
           </div>
-
-          {selectedRecipe.videoUrl && (
-            <a
-              href={selectedRecipe.videoUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 py-3 px-4 bg-stone-100 rounded-2xl text-stone-700 font-medium text-sm hover:bg-stone-200"
-            >
-              <svg className="w-5 h-5 text-red-600" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
-              Watch recipe video
-            </a>
-          )}
 
           <div className="space-y-4">
             <h2 className="text-xl font-bold text-stone-800">Instructions</h2>
@@ -316,33 +344,104 @@ const App: React.FC = () => {
           onCancel={() => setCurrentView(AppView.Home)}
         />
       )}
+      {currentView === AppView.CreateFromChat && authUser && (
+        <CreateFromChat
+          userId={authUser.uid}
+          onCreated={(recipe) => {
+            setRecipes((prev) => [...prev.filter((r) => r.id !== recipe.id), recipe]);
+            setSelectedRecipe(recipe);
+            setCurrentView(AppView.RecipeDetail);
+          }}
+          onCancel={() => setCurrentView(AppView.Home)}
+        />
+      )}
 
       {BOTTOM_NAV_VIEWS.includes(currentView) && (
-        <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/80 backdrop-blur-md border-t border-stone-200 px-8 py-4 flex items-center justify-between z-40">
-          <button
-            onClick={() => setCurrentView(AppView.Home)}
-            className={`p-2 rounded-xl transition-colors ${currentView === AppView.Home ? 'text-emerald-600 bg-emerald-50' : 'text-stone-400'}`}
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7-7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
-          </button>
-          <button className="p-2 text-stone-400">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
-          </button>
-          <button
-            onClick={() => setCurrentView(AppView.Profile)}
-            className={`p-2 rounded-xl transition-colors ${currentView === AppView.Profile ? 'text-emerald-600 bg-emerald-50' : 'text-stone-400'}`}
-            title="Profile"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-          </button>
-          <button
-            onClick={() => signOut()}
-            className="p-2 text-stone-400 hover:text-stone-600"
-            title="Sign out"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
-          </button>
-        </nav>
+        <>
+          <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/80 backdrop-blur-md border-t border-stone-200 px-8 py-4 flex items-center justify-between z-40">
+            <button
+              onClick={() => setCurrentView(AppView.Home)}
+              className={`p-2 rounded-xl transition-colors ${currentView === AppView.Home ? 'text-emerald-600 bg-emerald-50' : 'text-stone-400'}`}
+              title="Home"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7-7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
+            </button>
+            <button
+              onClick={() => setShowRecipePrepMenu(true)}
+              className={`p-2 rounded-xl transition-colors ${showRecipePrepMenu ? 'text-emerald-600 bg-emerald-50' : 'text-stone-400'}`}
+              title="Recipe prep"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+            </button>
+            <button
+              onClick={() => setCurrentView(AppView.Profile)}
+              className={`p-2 rounded-xl transition-colors ${currentView === AppView.Profile ? 'text-emerald-600 bg-emerald-50' : 'text-stone-400'}`}
+              title="Profile"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+            </button>
+          </nav>
+
+          {showRecipePrepMenu && (
+            <>
+              <div
+                className="fixed inset-0 z-50 bg-black/40"
+                onClick={() => setShowRecipePrepMenu(false)}
+                aria-hidden="true"
+              />
+              <div className="fixed bottom-20 left-1/2 -translate-x-1/2 max-w-md w-[calc(100%-2rem)] z-50 bg-white rounded-2xl shadow-xl border border-stone-100 overflow-hidden">
+                <div className="p-2">
+                  <p className="px-3 py-2 text-xs font-semibold text-stone-400 uppercase tracking-wider">Recipe prep</p>
+                  <button
+                    onClick={() => {
+                      setShowRecipePrepMenu(false);
+                      setCurrentView(AppView.CreateFromYouTube);
+                    }}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl text-left hover:bg-stone-50 active:bg-stone-100 transition-colors"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-red-500/10 flex items-center justify-center">
+                      <svg className="w-5 h-5 text-red-600" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-semibold text-stone-800">Create from YouTube</p>
+                      <p className="text-xs text-stone-500">Turn a video into a recipe with timestamps</p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowRecipePrepMenu(false);
+                      setCurrentView(AppView.CreateFromChat);
+                    }}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl text-left hover:bg-stone-50 active:bg-stone-100 transition-colors"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-violet-500/10 flex items-center justify-center">
+                      <svg className="w-5 h-5 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-semibold text-stone-800">Describe a dish</p>
+                      <p className="text-xs text-stone-500">Name or describe a recipe to create and prepare</p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowRecipePrepMenu(false);
+                      setCurrentView(AppView.Scanner);
+                    }}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl text-left hover:bg-stone-50 active:bg-stone-100 transition-colors"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                      <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-semibold text-stone-800">Scan ingredients</p>
+                      <p className="text-xs text-stone-500">AI suggests recipes from your pantry</p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </>
       )}
     </div>
   );

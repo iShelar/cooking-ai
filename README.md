@@ -39,7 +39,23 @@ To use **Create from YouTube** (turn a cooking video into a recipe with step tim
 <!-- Features -->
 ## Features to be added:
 
-1. Dietary option - when generating recipe through chat / youtube vidoe that time we will ask few questions if they wanna skip they can skip
-2. They can see if they don't have those items in list - we can show alternatives
-3. The dietary information about user we can ask upfront or while in any instance and then ask them to store it in setting or just tell agent, agent will take care of it through voice and store it in preference in setting
-4. All of these we can move to firebase
+1. Dietary option - when generating recipe through chat / youtube video that time we 
+will ask few questions if they wanna skip.
+5. Fix performance issue and also UI bugs - Not hearing the voice when noise is there 
++ Should respond quickly.
+6. Search functionality
+<!-- 7. Instagram - Feature scope -->
+8. Voice command - fully automate
+9. Voice icon - sticky on corner.
+10. Once done - we will use inventory items and save it at end.
+11. Bugs - on mobile device - not able to start the video using voice.
+<!-- 12. Generate recipes using prompt. -->
+13. Fix youtube recipe generation flow.
+14. Prompt user if they wanna change the laguage or not.
+<!-- 15. Image is not properly set (thumbnail or gen ai)~~ — When a recipe has no image 
+(or only a placeholder), the app generates a realistic image with Gemini, stores it 
+in Firebase Storage, and links it to the recipe in the DB. -->
+16. Share recipes
+17. Whenever recipe start or if important it should ask for timer and heat level. so 
+user will know -> every time show the heat level.
+18. Few curated recipes - we will standardize

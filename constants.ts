@@ -1,6 +1,10 @@
 
 import { Recipe } from './types';
 
+/** Default recipe image: balanced, appetizing ingredients. Used when no video thumbnail or custom image. */
+export const DEFAULT_RECIPE_IMAGE =
+  'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=800&q=80';
+
 export const MOCK_RECIPES: Recipe[] = [
   {
     id: '1',

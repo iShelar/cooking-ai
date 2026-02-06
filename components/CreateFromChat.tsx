@@ -1,22 +1,19 @@
 import React, { useState } from "react";
-import {
-  fetchTimestampsForUrl,
-  recipeFromTimestampResult,
-  type YouTubeTimestampResult,
-} from "../services/youtubeRecipeService";
+import { generateRecipeFromDescription } from "../services/geminiService";
 import { updateRecipeInDB } from "../services/dbService";
+import { DEFAULT_RECIPE_IMAGE } from "../constants";
 import type { Recipe } from "../types";
 
-interface CreateFromYouTubeProps {
+interface CreateFromChatProps {
   userId: string;
   onCreated: (recipe: Recipe) => void;
   onCancel: () => void;
 }
 
-type Step = "idle" | "fetching" | "creating" | "saving" | "success" | "error";
+type Step = "idle" | "creating" | "saving" | "success" | "error";
 
-const CreateFromYouTube: React.FC<CreateFromYouTubeProps> = ({ userId, onCreated, onCancel }) => {
-  const [url, setUrl] = useState("");
+const CreateFromChat: React.FC<CreateFromChatProps> = ({ userId, onCreated, onCancel }) => {
+  const [description, setDescription] = useState("");
   const [step, setStep] = useState<Step>("idle");
   const [progress, setProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState("");
@@ -26,10 +23,8 @@ const CreateFromYouTube: React.FC<CreateFromYouTubeProps> = ({ userId, onCreated
 
   const getMessageForStep = (s: Step): string => {
     switch (s) {
-      case "fetching":
-        return "Fetching your video and timestamps…";
       case "creating":
-        return "Turning it into a recipe with step-by-step links…";
+        return "Creating your recipe…";
       case "saving":
         return "Saving to your collection…";
       case "success":
@@ -40,29 +35,38 @@ const CreateFromYouTube: React.FC<CreateFromYouTubeProps> = ({ userId, onCreated
   };
 
   const handleCreateRecipe = async () => {
-    const u = url.trim();
-    if (!u) {
-      setError("Please paste a YouTube link first.");
+    const text = description.trim();
+    if (!text) {
+      setError("Describe the dish or name the recipe you want to make.");
       setStep("error");
       return;
     }
     setError(null);
-    setStep("fetching");
-    setProgress(10);
-    setStatusMessage(getMessageForStep("fetching"));
-
-    let timestampResult: YouTubeTimestampResult | null = null;
+    setStep("creating");
+    setProgress(20);
+    setStatusMessage(getMessageForStep("creating"));
 
     try {
-      timestampResult = await fetchTimestampsForUrl(u);
-      setProgress(45);
-      setStep("creating");
-      setStatusMessage(getMessageForStep("creating"));
-
-      const recipe = await recipeFromTimestampResult(timestampResult);
-      setProgress(80);
+      const parsed = await generateRecipeFromDescription(text);
+      setProgress(70);
       setStep("saving");
       setStatusMessage(getMessageForStep("saving"));
+
+      const recipeId = "chat_" + Date.now() + "_" + Math.random().toString(36).slice(2, 9);
+      const difficulty: Recipe["difficulty"] =
+        parsed.difficulty === "Hard" || parsed.difficulty === "Medium" ? parsed.difficulty : "Easy";
+      const recipe: Recipe = {
+        id: recipeId,
+        title: String(parsed.title ?? "My recipe"),
+        description: String(parsed.description ?? ""),
+        prepTime: String(parsed.prepTime ?? "10 min"),
+        cookTime: String(parsed.cookTime ?? "20 min"),
+        difficulty,
+        servings: 2,
+        image: DEFAULT_RECIPE_IMAGE,
+        ingredients: Array.isArray(parsed.ingredients) ? parsed.ingredients : [],
+        steps: Array.isArray(parsed.steps) ? parsed.steps : [],
+      };
 
       await updateRecipeInDB(userId, recipe);
       setProgress(100);
@@ -74,9 +78,7 @@ const CreateFromYouTube: React.FC<CreateFromYouTubeProps> = ({ userId, onCreated
       }, 1200);
     } catch (e) {
       const message =
-        e instanceof Error
-          ? e.message
-          : "Something went wrong. Check the link and try again. If you use a timestamp service, make sure it’s running.";
+        e instanceof Error ? e.message : "Something went wrong. Please try again.";
       setError(message);
       setStep("error");
       setProgress(0);
@@ -96,28 +98,28 @@ const CreateFromYouTube: React.FC<CreateFromYouTubeProps> = ({ userId, onCreated
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        <h1 className="text-lg font-bold text-stone-800">Create from YouTube</h1>
+        <h1 className="text-lg font-bold text-stone-800">Create from description</h1>
         <div className="w-10" />
       </div>
 
       <p className="text-stone-500 text-sm mb-6">
-        Paste a YouTube cooking video link below. We’ll get timestamps and turn it into a recipe with step-by-step video links.
+        Name a dish or describe what you want to cook. We’ll generate a recipe you can prepare and follow in cooking mode—same as with YouTube or the scanner.
       </p>
 
       <div className="space-y-4 mb-6">
-        <input
-          type="url"
-          value={url}
+        <textarea
+          value={description}
           onChange={(e) => {
-            setUrl(e.target.value);
+            setDescription(e.target.value);
             if (error) setError(null);
           }}
-          placeholder="https://www.youtube.com/watch?v=..."
+          placeholder="e.g. Pasta carbonara, quick egg breakfast, vegetarian curry…"
           disabled={isBusy}
-          className="w-full bg-stone-100 rounded-xl py-3 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-60"
+          rows={3}
+          className="w-full bg-stone-100 rounded-xl py-3 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-60 resize-none"
         />
 
-        {(step === "fetching" || step === "creating" || step === "saving") && (
+        {(step === "creating" || step === "saving") && (
           <div className="space-y-3 p-4 bg-white rounded-2xl border border-stone-100 shadow-sm">
             <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
               <div
@@ -158,7 +160,7 @@ const CreateFromYouTube: React.FC<CreateFromYouTubeProps> = ({ userId, onCreated
         disabled={isBusy}
         className="w-full py-4 bg-emerald-600 text-white font-black rounded-2xl shadow-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.98]"
       >
-        {step === "fetching" || step === "creating" || step === "saving"
+        {step === "creating" || step === "saving"
           ? statusMessage
           : step === "success"
             ? "Taking you there…"
@@ -168,4 +170,4 @@ const CreateFromYouTube: React.FC<CreateFromYouTubeProps> = ({ userId, onCreated
   );
 };
 
-export default CreateFromYouTube;
+export default CreateFromChat;

@@ -13,19 +13,26 @@ const Settings: React.FC<SettingsProps> = ({ userId, onBack, onSaved }) => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const loadSettings = async () => {
+    setLoadError(null);
+    setLoading(true);
+    try {
+      const stored = await getAppSettings(userId);
+      setSettings(stored);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load settings.';
+      setLoadError(message);
+      setSettings({ ...DEFAULT_APP_SETTINGS });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const stored = await getAppSettings(userId);
-        setSettings(stored);
-      } catch {
-        setSettings({ ...DEFAULT_APP_SETTINGS });
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
+    loadSettings();
   }, [userId]);
 
   const update = (patch: Partial<AppSettings>) => {
@@ -35,13 +42,15 @@ const Settings: React.FC<SettingsProps> = ({ userId, onBack, onSaved }) => {
   const handleSave = async () => {
     setSaving(true);
     setSaved(false);
+    setSaveError(null);
     try {
       await saveAppSettings(userId, settings);
       onSaved?.(settings);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-    } catch {
-      // could show toast
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save settings.';
+      setSaveError(message);
     } finally {
       setSaving(false);
     }
@@ -57,6 +66,17 @@ const Settings: React.FC<SettingsProps> = ({ userId, onBack, onSaved }) => {
 
   return (
     <div className="min-h-screen bg-[#fcfcf9] pb-24">
+      {loadError && (
+        <div className="mx-6 mt-6 p-4 bg-red-50 border border-red-100 rounded-xl text-red-700 text-sm flex items-center justify-between gap-4">
+          <span>{loadError}</span>
+          <button onClick={loadSettings} className="text-red-600 font-semibold text-xs whitespace-nowrap">Retry</button>
+        </div>
+      )}
+      {saveError && (
+        <div className="mx-6 mt-6 p-4 bg-red-50 border border-red-100 rounded-xl text-red-700 text-sm">
+          {saveError}
+        </div>
+      )}
       <header className="px-6 pt-8 pb-6 flex items-center justify-between">
         <button
           onClick={onBack}

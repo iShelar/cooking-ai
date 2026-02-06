@@ -13,16 +13,13 @@ const IngredientScanner: React.FC<IngredientScannerProps> = ({ onClose, onSelect
   const [ingredients, setIngredients] = useState<string[]>([]);
   const [recommendations, setRecommendations] = useState<any[]>([]);
   const [step, setStep] = useState<'camera' | 'identifying' | 'results'>('camera');
+  const [error, setError] = useState<string | null>(null);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  useEffect(() => {
-    startCamera();
-    return () => stopCamera();
-  }, []);
-
   const startCamera = async () => {
+    setError(null);
     try {
       const s = await navigator.mediaDevices.getUserMedia({ 
         video: { facingMode: 'environment', width: { ideal: 1080 }, height: { ideal: 1920 } },
@@ -31,9 +28,15 @@ const IngredientScanner: React.FC<IngredientScannerProps> = ({ onClose, onSelect
       setStream(s);
       if (videoRef.current) videoRef.current.srcObject = s;
     } catch (err) {
-      console.error("Camera access denied", err);
+      const message = err instanceof Error ? err.message : 'Camera access denied. Please allow camera in your browser settings.';
+      setError(message);
     }
   };
+
+  useEffect(() => {
+    startCamera();
+    return () => stopCamera();
+  }, []);
 
   const stopCamera = () => {
     stream?.getTracks().forEach(track => track.stop());
@@ -60,8 +63,10 @@ const IngredientScanner: React.FC<IngredientScannerProps> = ({ onClose, onSelect
       const recs = await getRecipeRecommendations(foundIngredients);
       setRecommendations(recs);
       setStep('results');
+      setError(null);
     } catch (err) {
-      console.error("Scan failed", err);
+      const message = err instanceof Error ? err.message : 'Scan failed. Check your connection and try again.';
+      setError(message);
       setStep('camera');
     } finally {
       setIsProcessing(false);
@@ -81,7 +86,23 @@ const IngredientScanner: React.FC<IngredientScannerProps> = ({ onClose, onSelect
 
       {/* Viewport */}
       <div className="relative flex-1 bg-stone-900 overflow-hidden">
-        {step === 'camera' && (
+        {error && step === 'camera' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-6 bg-stone-900 z-20">
+            <div className="w-14 h-14 rounded-full bg-red-500/20 flex items-center justify-center mb-4">
+              <svg className="w-7 h-7 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <p className="text-white/90 text-sm text-center mb-6">{error}</p>
+            <button
+              onClick={() => { setError(null); startCamera(); }}
+              className="px-5 py-2.5 bg-white text-stone-800 font-semibold rounded-xl"
+            >
+              Try again
+            </button>
+          </div>
+        )}
+        {step === 'camera' && !error && (
           <video 
             ref={videoRef} 
             autoPlay 
@@ -100,7 +121,7 @@ const IngredientScanner: React.FC<IngredientScannerProps> = ({ onClose, onSelect
         <canvas ref={canvasRef} className="hidden" />
 
         {/* Camera UI Overlay */}
-        {step === 'camera' && (
+        {step === 'camera' && !error && (
           <div className="absolute bottom-12 left-0 right-0 flex flex-col items-center gap-8">
             <p className="text-white/70 text-sm font-medium">Point at your ingredients</p>
             <button 
