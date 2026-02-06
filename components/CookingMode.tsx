@@ -4,6 +4,7 @@ import { Recipe, AppSettings, DEFAULT_APP_SETTINGS, VOICE_LANGUAGE_OPTIONS } fro
 import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration } from '@google/genai';
 import { decode, encode, decodeAudioData } from '../services/geminiService';
 import { subtractRecipeIngredientsFromInventory } from '../services/dbService';
+import { resampleTo16k, float32ToInt16Pcm, BATCH_SAMPLES_16K } from '../services/voiceAudioUtils';
 
 interface CookingModeProps {
   recipe: Recipe;
@@ -57,6 +58,30 @@ declare global {
 }
 
 const celsiusToFahrenheit = (c: number) => Math.round(c * (9 / 5) + 32);
+
+/** Insert spaces in run-together Indic (e.g. Devanagari) text so words don't stick together. */
+function formatIndicSpacing(text: string): string {
+  if (!text || text.length < 2) return text;
+  let out = text;
+  // Space between letter and digit: "पायरी5" -> "पायरी 5", "2चमचे" -> "2 चमचे"
+  out = out.replace(/(\D)(\d)/g, '$1 $2').replace(/(\d)(\D)/g, '$1 $2');
+  // Space after punctuation when followed by a letter: ".एका" -> ". एका"
+  out = out.replace(/([.।,!?])(\S)/g, '$1 $2');
+  // Devanagari independent vowels (अ आ इ ई उ ऊ ए ऐ ओ औ) often start words: "जातआहे" -> "जात आहे"
+  const devanagariIndependentVowel = /[\u0904-\u0914]/;
+  const devanagariChar = /[\u0900-\u097F]/;
+  const chars = [...out];
+  const result: string[] = [];
+  for (let i = 0; i < chars.length; i++) {
+    const prev = i > 0 ? chars[i - 1] : ' ';
+    const curr = chars[i];
+    if (prev !== ' ' && curr !== ' ' && devanagariIndependentVowel.test(curr) && devanagariChar.test(prev)) {
+      result.push(' ');
+    }
+    result.push(curr);
+  }
+  return result.join('').replace(/\s+/g, ' ').trim();
+}
 const formatTempForDisplay = (suggestion: string, units: 'metric' | 'imperial'): string => {
   if (units !== 'imperial') return suggestion;
   const match = suggestion.match(/^(\d+)/);
@@ -110,6 +135,8 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: 
   const [videoReloadKey, setVideoReloadKey] = useState(0);
   /** When on last step, user can dismiss the finish bar; we show it again after the 2.5 min reminder. */
   const [finishPromptDismissed, setFinishPromptDismissed] = useState(false);
+  /** Shown briefly after voice "play video" so user can tap video if programmatic play was blocked (e.g. mobile). */
+  const [showTapToPlayHint, setShowTapToPlayHint] = useState(false);
 
   const reachedLastStepAtRef = useRef<number | null>(null);
   const finishReminderTimeoutRef = useRef<number | null>(null);
@@ -267,6 +294,8 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: 
     return `[Context: User is on Step ${oneBased} of ${stepsCount}${ts ? ` (video ${ts})` : ''}. Instruction: "${instruction}".
 
 NEW STEP RULE: User just started this step. (1) TIMER: Only suggest a timer when the step actually has a clear duration that helps a beginner (e.g. "simmer for 10 minutes", "bake 20 min", "rest 5 minutes")—not just because the word "timer" appears. Do not suggest a timer on every step; only when the instruction clearly implies a specific cooking or resting time. Suggest once: "Want me to set a X minute timer?" Only call startTimer after the user confirms. (2) HEAT: If the step implies a heat level (sauté, boil, medium heat, sear, etc.), just say the suggestion once (e.g. "Use medium heat for this step" or "I'd suggest medium-high here"). Do NOT offer to set it or call setTemperature—only suggest the level; the user will set it themselves if they want.
+
+DO NOT REPEAT: Say the step instruction and any timer or heat suggestion exactly ONCE. Never say the same sentence or phrase twice in a row.
 
 If they say "next" or "next step", you MUST call nextStep(). If they say "previous" or "go back", you MUST call previousStep(). If they ask to go to another step by number, scenario, or time, you MUST call goToStep(index) with the 0-based index from the step list.]`;
   }, [recipe.steps, recipe.stepTimestamps, stepsCount]);
@@ -516,9 +545,9 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
       name: 'setVideoPlayback',
       parameters: {
         type: Type.OBJECT,
-        description: 'Pause, stop, or play the embedded recipe video. Use when the user says "pause the video", "stop the video", "pause video", "play the video", "resume the video", etc.',
+        description: 'Pause, stop, or play the embedded recipe video. Call this when the user says "play the video", "start the video", "start video", "play video", "resume the video", "pause the video", "stop the video", "pause video", etc.',
         properties: {
-          action: { type: Type.STRING, enum: ['play', 'pause', 'stop'], description: 'play = start/resume playback; pause = pause playback; stop = stop and reset to start' }
+          action: { type: Type.STRING, enum: ['play', 'pause', 'stop'], description: 'play = start or resume playback; pause = pause; stop = stop and reset to start' }
         },
         required: ['action']
       }
@@ -545,29 +574,7 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
   ];
 
   const handleLiveMessage = useCallback(async (message: LiveServerMessage) => {
-    const audioData = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
-    if (audioData && audioContextRef.current) {
-      if (audioSourceRef.current === 'video') {
-        // User chose to listen to video; don't play agent TTS.
-        return;
-      }
-      setIsAssistantSpeaking(true);
-      const ctx = audioContextRef.current;
-      nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
-      const buffer = await decodeAudioData(decode(audioData), ctx, 24000, 1);
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-      source.playbackRate.value = appSettings.voiceSpeed;
-      source.connect(ctx.destination);
-      source.addEventListener('ended', () => {
-        sourcesRef.current.delete(source);
-        if (sourcesRef.current.size === 0) setIsAssistantSpeaking(false);
-      });
-      source.start(nextStartTimeRef.current);
-      nextStartTimeRef.current += buffer.duration / appSettings.voiceSpeed;
-      sourcesRef.current.add(source);
-    }
-
+    // Process tool calls first so the step indicator and UI update immediately, before audio.
     if (message.toolCall) {
       for (const fc of message.toolCall.functionCalls) {
         if (fc.name === 'startTimer') {
@@ -589,8 +596,11 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
           const player = ytPlayerRef.current;
           if (player) {
             try {
-              if (action === 'play') player.playVideo?.();
-              else if (action === 'pause') player.pauseVideo?.();
+              if (action === 'play') {
+                player.playVideo?.();
+                setShowTapToPlayHint(true);
+                setTimeout(() => setShowTapToPlayHint(false), 5000);
+              } else if (action === 'pause') player.pauseVideo?.();
               else player.stopVideo?.();
             } catch (_) {}
           }
@@ -625,13 +635,40 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
       }
     }
 
+    const audioData = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
+    if (audioData && audioContextRef.current) {
+      if (audioSourceRef.current === 'video') {
+        return;
+      }
+      setIsAssistantSpeaking(true);
+      const ctx = audioContextRef.current;
+      nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
+      const buffer = await decodeAudioData(decode(audioData), ctx, 24000, 1);
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.playbackRate.value = appSettings.voiceSpeed;
+      source.connect(ctx.destination);
+      source.addEventListener('ended', () => {
+        sourcesRef.current.delete(source);
+        if (sourcesRef.current.size === 0) setIsAssistantSpeaking(false);
+      });
+      source.start(nextStartTimeRef.current);
+      nextStartTimeRef.current += buffer.duration / appSettings.voiceSpeed;
+      sourcesRef.current.add(source);
+    }
+
     if (message.serverContent?.outputTranscription) {
-      const text = message.serverContent.outputTranscription.text ?? '';
+      const text = (message.serverContent.outputTranscription.text ?? '').trim();
+      if (!text) return;
       if (newTurnStartedRef.current) {
         newTurnStartedRef.current = false;
         setAiResponse(text);
       } else {
-        setAiResponse(prev => prev + text);
+        setAiResponse(prev => {
+          if (prev.endsWith(text) || text === prev) return prev;
+          const needSpace = prev.length > 0 && text.length > 0 && !/\s$/.test(prev) && !/^\s/.test(text);
+          return prev + (needSpace ? ' ' : '') + text;
+        });
       }
     }
     if (message.serverContent?.turnComplete) {
@@ -639,6 +676,7 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
     }
     if (message.serverContent?.interrupted) {
       newTurnStartedRef.current = true;
+      setAiResponse('');
       stopAudio();
     }
   }, [appSettings.voiceSpeed, userId, recipe, onExit, triggerNextStep, triggerPrevStep, triggerGoToStep, triggerStartTimer, triggerPauseTimer, triggerResumeTimer, triggerStopTimer, triggerSetTemperature, stopAudio]);
@@ -660,7 +698,8 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
       }
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       if (!audioContextRef.current) audioContextRef.current = new AudioContext({ sampleRate: 24000, latencyHint: 'interactive' });
-      if (!inputAudioContextRef.current) inputAudioContextRef.current = new AudioContext({ sampleRate: 16000, latencyHint: 'interactive' });
+      // Use default sample rate for mic so we get device-native (usually 48k); we resample to 16k before sending.
+      if (!inputAudioContextRef.current) inputAudioContextRef.current = new AudioContext({ latencyHint: 'interactive' });
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -672,49 +711,80 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
       });
       streamRef.current = stream;
 
+      const inputCtx = inputAudioContextRef.current;
+      const inputRate = inputCtx.sampleRate;
+
       const sessionPromise = ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-12-2025',
         callbacks: {
           onopen: () => {
             setIsListening(true);
-            // Inject current step context as soon as connection opens (user may have manually navigated before opening mic).
-            sessionPromise.then(session => {
+            sessionPromise.then(async (session) => {
+              sessionRef.current = session;
               session.sendClientContent({
                 turns: getCurrentStepContext(currentStepRef.current),
                 turnComplete: false
               });
-            });
-            const source = inputAudioContextRef.current!.createMediaStreamSource(stream);
-            const processor = inputAudioContextRef.current!.createScriptProcessor(4096, 1, 1);
+              const source = inputCtx.createMediaStreamSource(stream);
+              let lastVolumeUpdate = 0;
+              const VOLUME_UPDATE_INTERVAL_MS = 80;
 
-            // Tuned for kitchen environments: frying, fans, clinking.
-            const NOISE_GATE_THRESHOLD = 0.007;
-            const HYSTERESIS_SAMPLES = 15;
-            let quietCounter = 0;
+              const flushBatch = (batch: number[], session: typeof sessionRef.current) => {
+                if (!session) return;
+                while (batch.length >= BATCH_SAMPLES_16K) {
+                  const chunk = batch.splice(0, BATCH_SAMPLES_16K);
+                  const float32 = new Float32Array(chunk);
+                  const pcm = float32ToInt16Pcm(float32);
+                  const pcmBlob = { data: encode(pcm), mimeType: 'audio/pcm;rate=16000' };
+                  session.sendRealtimeInput({ media: pcmBlob });
+                }
+              };
 
-            processor.onaudioprocess = (e) => {
-              const input = e.inputBuffer.getChannelData(0);
-              let sum = 0;
-              for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
-              const rms = Math.sqrt(sum / input.length);
-              setInputVolume(rms);
-
-              if (rms > NOISE_GATE_THRESHOLD) {
-                quietCounter = 0;
-                const int16 = new Int16Array(input.length);
-                for (let i = 0; i < input.length; i++) int16[i] = input[i] * 32768;
-                const pcmBlob = { data: encode(new Uint8Array(int16.buffer)), mimeType: 'audio/pcm;rate=16000' };
-                sessionPromise.then(session => session.sendRealtimeInput({ media: pcmBlob }));
-              } else if (quietCounter < HYSTERESIS_SAMPLES) {
-                quietCounter++;
-                const int16 = new Int16Array(input.length);
-                for (let i = 0; i < input.length; i++) int16[i] = input[i] * 32768;
-                const pcmBlob = { data: encode(new Uint8Array(int16.buffer)), mimeType: 'audio/pcm;rate=16000' };
-                sessionPromise.then(session => session.sendRealtimeInput({ media: pcmBlob }));
+              try {
+                await inputCtx.audioWorklet.addModule('/mic-worklet.js');
+                const workletNode = new AudioWorkletNode(inputCtx, 'mic-worklet-processor', {
+                  processorOptions: { sampleRate: inputRate },
+                  numberOfInputs: 1,
+                  numberOfOutputs: 1
+                });
+                const batch: number[] = [];
+                workletNode.port.onmessage = (event: MessageEvent<{ samples: Float32Array; sampleRate: number }>) => {
+                  const { samples, sampleRate } = event.data;
+                  const rms = Math.sqrt(samples.reduce((s, x) => s + x * x, 0) / samples.length);
+                  const now = Date.now();
+                  if (now - lastVolumeUpdate >= VOLUME_UPDATE_INTERVAL_MS) {
+                    lastVolumeUpdate = now;
+                    setInputVolume(rms);
+                  }
+                  const resampled = resampleTo16k(samples, sampleRate);
+                  for (let i = 0; i < resampled.length; i++) batch.push(resampled[i]);
+                  flushBatch(batch, sessionRef.current);
+                };
+                source.connect(workletNode);
+                workletNode.connect(inputCtx.destination);
+              } catch {
+                const processor = inputCtx.createScriptProcessor(4096, 1, 1);
+                const batch: number[] = [];
+                processor.onaudioprocess = (e) => {
+                  const input = e.inputBuffer.getChannelData(0);
+                  let sum = 0;
+                  for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
+                  const rms = Math.sqrt(sum / input.length);
+                  const now = Date.now();
+                  if (now - lastVolumeUpdate >= VOLUME_UPDATE_INTERVAL_MS) {
+                    lastVolumeUpdate = now;
+                    setInputVolume(rms);
+                  }
+                  const session = sessionRef.current;
+                  if (!session) return;
+                  const resampled = resampleTo16k(new Float32Array(input), inputRate);
+                  for (let i = 0; i < resampled.length; i++) batch.push(resampled[i]);
+                  flushBatch(batch, session);
+                };
+                source.connect(processor);
+                processor.connect(inputCtx.destination);
               }
-            };
-            source.connect(processor);
-            processor.connect(inputAudioContextRef.current!.destination);
+            });
           },
           onmessage: handleLiveMessage,
           onerror: (e) => console.error(e),
@@ -727,6 +797,7 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
         config: {
           responseModalities: [Modality.AUDIO],
           tools: [{ functionDeclarations: tools }],
+          contextWindowCompression: { slidingWindow: {} },
           systemInstruction: `You are the CookAI Assistant for "${recipe.title}". 
           
           LANGUAGE: The user may ask or give commands in any language (e.g. Hindi, Spanish). Always understand their intent and carry out the action (next step, pause video, go to step, etc.). Your responses and all speech must be ONLY in ${VOICE_LANGUAGE_OPTIONS.find((o) => o.code === appSettings.voiceLanguage)?.label ?? 'English'}. Do not reply in the user's language—always use ${VOICE_LANGUAGE_OPTIONS.find((o) => o.code === appSettings.voiceLanguage)?.label ?? 'English'} for your output. Recipe steps and UI are in English.
@@ -735,13 +806,14 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
           ${recipe.steps.map((s, i) => `[${i}] ${(recipe.stepTimestamps?.[i] ?? '') ? `(${recipe.stepTimestamps[i]}) ` : ''}${s}`).join('\n')}
           
           STEP NAVIGATION (MANDATORY—you MUST call the tool, not only describe):
-          - "next", "next step", "go forward" → call nextStep(), then say the new step instruction briefly.
-          - "previous", "previous step", "go back", "last step" → call previousStep(), then say the step instruction briefly.
-          - "go to step N", "step N", "what's step N" → call goToStep(N-1) (step numbers are 1-based; goToStep uses 0-based index).
+          - "next", "next step", "go forward", "what's next" → call nextStep() FIRST (before speaking), then say the new step instruction briefly.
+          - "previous", "previous step", "go back", "last step" → call previousStep() FIRST (before speaking), then say the step instruction briefly.
+          - "go to step N", "step N", "what's step N" → call goToStep(N-1) FIRST (step numbers are 1-based; goToStep uses 0-based index).
           - "when do we [X]", "go to [X]", "the part where we [X]", "what about [ingredient/time]" → find the step whose instruction or timestamp matches [X], then call goToStep(index) with that step's index from the list above. Example: "go to when we add spinach" → find the step that mentions adding spinach, get its [index], call goToStep(index).
           - "at 2 minutes", "at 1:30", "what happens at [time]" → find the step with that timestamp (or closest) in the list, call goToStep(index).
           Never only describe a step without calling nextStep, previousStep, or goToStep—the screen and video only update when you call the tool.
-          ${recipe.videoUrl ? `\nVIDEO: The recipe video starts MUTED in agent mode. User must explicitly ask to unmute (e.g. "unmute the video", "turn on video sound")—then call setVideoMute muted false. Embedded video seeks to the step's timestamp when you call goToStep/nextStep/previousStep. Playback: "pause/stop the video" → setVideoPlayback "pause" or "stop"; "play/resume the video" → setVideoPlayback "play". Volume: "mute the video" → setVideoMute muted true; "unmute the video", "turn on video sound" → setVideoMute muted false. Audio source: "use video audio" → setAudioSource "video"; "use your voice" → setAudioSource "agent".` : ''}
+          SPEED: When the user asks to change step (next, previous, go to step N), call the tool IMMEDIATELY at the start of your response—before saying anything. The step indicator must update right away so the user sees the change instantly. Then speak your short confirmation and the instruction.
+          ${recipe.videoUrl ? `\nVIDEO: The recipe video starts MUTED in agent mode. User must explicitly ask to unmute (e.g. "unmute the video", "turn on video sound")—then call setVideoMute muted false. Embedded video seeks to the step's timestamp when you call goToStep/nextStep/previousStep. Playback: When the user says "play the video", "start the video", "start video", "play video", "resume", "resume the video", or "play" (meaning the recipe video), you MUST call setVideoPlayback with action "play". For "pause the video", "stop the video", "pause video" → setVideoPlayback "pause" or "stop". Volume: "mute the video" → setVideoMute muted true; "unmute the video", "turn on video sound" → setVideoMute muted false. Audio source: "use video audio" → setAudioSource "video"; "use your voice" → setAudioSource "agent".` : ''}
           
           TIMER & HEAT AT NEW STEP:
           - TIMER: Only suggest a timer when the step actually has a clear duration that helps a beginner (e.g. "simmer for 10 minutes", "bake 20 min", "rest 5 minutes"). Do NOT suggest just because the video or recipe says "timer"—only when the instruction clearly implies a specific cooking or resting time. Do not suggest on every step; keep it infrequent so beginners get help only when it's really needed. Say once: "Want me to set a X minute timer?" Only call startTimer after the user confirms (yes, please, set it).
@@ -750,12 +822,14 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
           
           CRITICAL SYNC & AUDITORY FEEDBACK RULES:
           1. YOU MUST VERBALLY ANNOUNCE EVERY ACTION. Confirmations are required for starting, pausing, stopping timers, setting temperatures, and moving steps.
-          2. For step changes: call the tool (nextStep/previousStep/goToStep) first, then say "Okay, next step" or "Previous step" or "Going to [that step]" ONCE and state only what to do (the instruction). Do NOT say the step number (e.g. "Step 2") in that same reply.
+          2. For step changes: call the tool (nextStep/previousStep/goToStep) FIRST—before any speech—so the step indicator updates instantly. Then say "Okay, next step" or "Previous step" or "Going to [that step]" ONCE and state only what to do (the instruction). Do NOT say the step number (e.g. "Step 2") in that same reply.
           3. WHENEVER the user asks to go to any step (by number, by scenario, or by time), call goToStep(index) with the correct 0-based index from the STEP LIST above.
           4. NEVER repeat the step number twice. After calling a step tool, give one short confirmation and only the instruction, e.g. "Okay. Chop the onions."
           5. NEVER say technical indices like "Index 0" to the user. Say "Step 1" only when they ask which step (and say it once).
-          6. Respond instantly and concisely.
-          7. If noise is high, keep your verbal confirmations short but clear.
+          6. NEVER repeat yourself: say the step instruction and any timer/heat question exactly once. Do not say the same sentence or phrase twice in a row.
+          7. Respond instantly and concisely. One short sentence is better than two. Prioritize speed—like talking to a human in the same room.
+          8. If noise is high or you didn't catch what they said, say one quick line only: "Sorry, say that again?" or "What was that?" then wait. Do not elaborate.
+          9. If you're unsure of intent, pick the most likely (e.g. "next" when it's ambiguous) and confirm in one phrase. Don't ask multiple questions.
           
           FINISHING THE RECIPE: When the user says they have finished cooking (e.g. "I'm done", "we're finished", "recipe complete", "all done", "finished"), call finishRecipe() once. Confirm briefly (e.g. "Done! I've updated your inventory.") then the app will exit cooking mode.`,
           outputAudioTranscription: {},
@@ -826,11 +900,18 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
 
       <div className="flex-1 min-h-0 overflow-y-auto px-4 py-5 flex flex-col gap-5">
         {showEmbeddedVideo && recipe.videoUrl && videoId && (
-          <div className="w-full aspect-video max-h-[220px] rounded-2xl overflow-hidden border border-stone-200/80 shadow-md flex-shrink-0 relative ring-1 ring-stone-200/50 bg-gradient-to-br from-stone-100 to-stone-200">
+          <div
+            className="w-full aspect-video max-h-[220px] rounded-2xl overflow-hidden border border-stone-200/80 shadow-md flex-shrink-0 relative ring-1 ring-stone-200/50 bg-gradient-to-br from-stone-100 to-stone-200 cursor-pointer"
+            onClick={() => { ytPlayerRef.current?.playVideo?.(); setShowTapToPlayHint(false); }}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ytPlayerRef.current?.playVideo?.(); setShowTapToPlayHint(false); } }}
+            aria-label="Video area: tap or say play to start"
+          >
             <div className="absolute top-2 right-2 z-20">
               <button
                 type="button"
-                onClick={handleReloadVideo}
+                onClick={(e) => { e.stopPropagation(); handleReloadVideo(); }}
                 className="w-8 h-8 rounded-full bg-black/20 hover:bg-black/30 text-white flex items-center justify-center active:scale-95 transition-transform shadow-sm"
                 title="Reload video"
                 aria-label="Reload video"
@@ -838,13 +919,18 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
               </button>
             </div>
+            {showTapToPlayHint && (
+              <div className="absolute bottom-2 left-2 right-2 z-20 py-1.5 px-2 rounded-lg bg-black/70 text-white text-xs text-center pointer-events-none">
+                Tap video to start playback
+              </div>
+            )}
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-stone-400 pointer-events-none" aria-hidden>
               <div className="w-14 h-14 rounded-full bg-white/80 shadow-sm flex items-center justify-center">
                 <svg className="w-6 h-6 text-stone-500 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
               </div>
               <p className="text-xs font-medium text-stone-500">Recipe video</p>
             </div>
-            <div ref={ytContainerRef} className="w-full h-full relative z-10 min-h-0" />
+            <div ref={ytContainerRef} className="w-full h-full relative z-10 min-h-0 pointer-events-none" />
           </div>
         )}
 
@@ -943,8 +1029,8 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
             className={`px-4 py-3 overflow-x-hidden text-left transition-[max-height] duration-300 ease-out captions-panel ${assistantExpanded ? 'flex-1 min-h-0 overflow-y-auto max-h-[11rem]' : 'max-h-0 min-h-0 overflow-hidden'}`}
           >
             {aiResponse ? (
-              <p className="text-[14px] leading-relaxed text-stone-800 animate-in fade-in duration-200">
-                {aiResponse}
+              <p className="text-[14px] leading-relaxed text-stone-800 animate-in fade-in duration-200 whitespace-pre-wrap">
+                {formatIndicSpacing(aiResponse)}
               </p>
             ) : (
               <p className="text-sm text-stone-500">

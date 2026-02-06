@@ -47,8 +47,10 @@ const App: React.FC = () => {
   /** When set, show the "use browser language for voice?" prompt once at start. */
   const [languagePromptOption, setLanguagePromptOption] = useState<{ code: string; label: string } | null>(null);
   const languagePromptCheckedRef = useRef(false);
-  /** Toast after adding recipe to shopping list. */
+  /** Toast after adding recipe to shopping list (for "all in inventory" or error). */
   const [shoppingListToast, setShoppingListToast] = useState<string | null>(null);
+  /** When true, show "Want to see shopping list? Yes / No" bar after adding items. */
+  const [showShoppingListPrompt, setShowShoppingListPrompt] = useState(false);
   const [shoppingListAdding, setShoppingListAdding] = useState(false);
   /** User dietary/allergy preferences (loaded with app data). */
   const [userPreferences, setUserPreferences] = useState<UserPreferences | null>(null);
@@ -236,11 +238,13 @@ const App: React.FC = () => {
     if (!authUser || !selectedRecipe) return;
     setShoppingListAdding(true);
     setShoppingListToast(null);
+    setShowShoppingListPrompt(false);
     try {
       const inventory = await getInventory(authUser.uid);
       const missing = getMissingIngredientsForRecipe(selectedRecipe, inventory);
       if (missing.length === 0) {
         setShoppingListToast('You have all ingredients in your inventory.');
+        setTimeout(() => setShoppingListToast(null), 4000);
       } else {
         await addShoppingListItems(authUser.uid, missing.map((m) => ({
           name: m.name,
@@ -248,11 +252,11 @@ const App: React.FC = () => {
           sourceRecipeId: selectedRecipe.id,
           sourceRecipeTitle: selectedRecipe.title,
         })));
-        setShoppingListToast(`Added ${missing.length} item${missing.length === 1 ? '' : 's'} to shopping list.`);
+        setShowShoppingListPrompt(true);
       }
-      setTimeout(() => setShoppingListToast(null), 4000);
     } catch {
       setShoppingListToast('Failed to add to shopping list.');
+      setTimeout(() => setShoppingListToast(null), 4000);
     } finally {
       setShoppingListAdding(false);
     }
@@ -362,7 +366,7 @@ const App: React.FC = () => {
             className="w-full h-full object-cover"
           />
           <button
-            onClick={() => setCurrentView(AppView.Home)}
+            onClick={() => { setShowShoppingListPrompt(false); setCurrentView(AppView.Home); }}
             className="absolute top-8 left-6 p-2 bg-white/90 backdrop-blur-sm rounded-xl text-stone-800 shadow-md z-10"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
@@ -442,6 +446,30 @@ const App: React.FC = () => {
             {shoppingListToast}
           </div>
         )}
+        {showShoppingListPrompt && (
+          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] max-w-md w-[calc(100%-2rem)] px-4 py-3 rounded-xl bg-stone-800 text-white shadow-lg flex items-center justify-between gap-3">
+            <span className="text-sm font-medium">Want to see shopping list?</span>
+            <div className="flex gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowShoppingListPrompt(false);
+                  setCurrentView(AppView.Inventory);
+                }}
+                className="px-4 py-2 rounded-lg bg-emerald-500 text-white text-sm font-semibold hover:bg-emerald-600 active:scale-[0.98] transition-all"
+              >
+                Yes
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowShoppingListPrompt(false)}
+                className="px-4 py-2 rounded-lg bg-stone-600 text-white text-sm font-medium hover:bg-stone-500 active:scale-[0.98] transition-all"
+              >
+                No
+              </button>
+            </div>
+          </div>
+        )}
         <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center pointer-events-none">
           <div className="w-full max-w-md p-6 pt-20 pointer-events-auto bg-gradient-to-t from-white via-white to-white/0">
             <button
@@ -502,7 +530,7 @@ const App: React.FC = () => {
         </ErrorBoundary>
       )}
       {currentView === AppView.RecipeDetail && (
-        <ErrorBoundary onReset={() => setCurrentView(AppView.Home)}>
+        <ErrorBoundary onReset={() => { setShowShoppingListPrompt(false); setCurrentView(AppView.Home); }}>
           {renderRecipeDetail()}
         </ErrorBoundary>
       )}
