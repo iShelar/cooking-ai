@@ -35,11 +35,21 @@ To use **Create from YouTube** (turn a cooking video into a recipe with step tim
 2. Or run the CLI and paste the JSON:  
    `node src/index.js "https://www.youtube.com/watch?v=..."` then copy the generated file from `data/` and paste into the app’s **Create from YouTube** screen.
 
+## PWA (Progressive Web App)
+
+The app is set up as a PWA so users can install it on their phone or desktop (Add to Home Screen / Install app).
+
+- **Icons:** PWA icons are generated from `public/favicon.svg`. To regenerate after changing the favicon, run:
+  ```bash
+  yarn run generate-pwa-icons
+  ```
+- **Install:** Deploy over **HTTPS**; then users can install via the browser’s install prompt or menu.
+- **Offline:** The app shell and static assets are cached. Auth and live data (Firebase, Gemini) still require a connection.
 
 <!-- Features -->
 ## Features to be added:
 
-1. ~~Dietary option~~ **Done** – At start, a one-time optional survey asks for dietary preferences and allergies (skippable). You can update them anytime in **Settings → Dietary & preferences**. When creating a recipe from **chat** or **YouTube**, you can choose to use saved preferences or skip for that recipe, and add extra alternatives (e.g. oat milk, gluten-free pasta) for that recipe only.
+<!-- 1. ~~Dietary option~~ **Done** – At start, a one-time optional survey asks for dietary preferences and allergies (skippable). You can update them anytime in **Settings → Dietary & preferences**. When creating a recipe from **chat** or **YouTube**, you can choose to use saved preferences or skip for that recipe, and add extra alternatives (e.g. oat milk, gluten-free pasta) for that recipe only. -->
 5. Fix performance issue and also UI bugs - Not hearing the voice when noise is there 
 + Should respond quickly.
 <!-- 6. Search functionality -->
