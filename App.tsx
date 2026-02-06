@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { AppView, Recipe, AppSettings, DEFAULT_APP_SETTINGS } from './types';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { AppView, Recipe, AppSettings, DEFAULT_APP_SETTINGS, VOICE_LANGUAGE_OPTIONS, getBrowserVoiceLanguage, hasShownLanguagePrompt, setLanguagePromptShown } from './types';
 import RecipeCard from './components/RecipeCard';
 import CookingMode from './components/CookingMode';
 import RecipeSetup from './components/RecipeSetup';
@@ -11,7 +11,7 @@ import Login from './components/Login';
 import Profile from './components/Profile';
 import Settings from './components/Settings';
 import { DEFAULT_RECIPE_IMAGE } from './constants';
-import { getAllRecipes, getAppSettings, updateRecipeInDB } from './services/dbService';
+import { getAllRecipes, getAppSettings, saveAppSettings, updateRecipeInDB } from './services/dbService';
 import { subscribeToAuthState } from './services/authService';
 import type { User } from 'firebase/auth';
 
@@ -37,6 +37,11 @@ const App: React.FC = () => {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showRecipePrepMenu, setShowRecipePrepMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  /** Sort order for recipe list: recent (default), name, difficulty, time. */
+  const [recipeSort, setRecipeSort] = useState<'recent' | 'name' | 'difficulty' | 'time'>('recent');
+  /** When set, show the "use browser language for voice?" prompt once at start. */
+  const [languagePromptOption, setLanguagePromptOption] = useState<{ code: string; label: string } | null>(null);
+  const languagePromptCheckedRef = useRef(false);
 
   useEffect(() => {
     const unsubscribe = subscribeToAuthState((user) => {
@@ -74,6 +79,31 @@ const App: React.FC = () => {
     loadData();
   }, [authUser, loadData]);
 
+  // One-time prompt at start: ask if user wants to use browser language for voice (based on navigator.language).
+  useEffect(() => {
+    if (!authChecked || languagePromptCheckedRef.current || hasShownLanguagePrompt()) return;
+    if (authUser && isLoading) return;
+    languagePromptCheckedRef.current = true;
+    const detected = getBrowserVoiceLanguage();
+    if (detected) setLanguagePromptOption(detected);
+  }, [authChecked, authUser, isLoading]);
+
+  const handleUseDetectedLanguage = useCallback(() => {
+    if (!languagePromptOption) return;
+    const next = { ...appSettings, voiceLanguage: languagePromptOption.code };
+    setAppSettings(next);
+    if (authUser) {
+      saveAppSettings(authUser.uid, next).catch(() => {});
+    }
+    setLanguagePromptShown();
+    setLanguagePromptOption(null);
+  }, [languagePromptOption, appSettings, authUser]);
+
+  const handleKeepCurrentLanguage = useCallback(() => {
+    setLanguagePromptShown();
+    setLanguagePromptOption(null);
+  }, []);
+
   const filteredRecipes = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     const list = q
@@ -88,17 +118,36 @@ const App: React.FC = () => {
           );
         })
       : [...recipes];
-    // Sort: recently prepared first, then recently viewed (both descending)
-    list.sort((a, b) => {
-      const aPrepared = a.lastPreparedAt ?? '';
-      const bPrepared = b.lastPreparedAt ?? '';
-      if (aPrepared !== bPrepared) return bPrepared.localeCompare(aPrepared);
-      const aViewed = a.lastViewedAt ?? '';
-      const bViewed = b.lastViewedAt ?? '';
-      return bViewed.localeCompare(aViewed);
-    });
+
+    const difficultyOrder = { Easy: 0, Medium: 1, Hard: 2 };
+    const parseMinutes = (s: string): number => {
+      if (!s || typeof s !== 'string') return 0;
+      const m = s.match(/(\d+)\s*min/);
+      const h = s.match(/(\d+)\s*h(r)?/);
+      if (h) return parseInt(h[1], 10) * 60;
+      if (m) return parseInt(m[1], 10);
+      return 0;
+    };
+    const totalMinutes = (r: Recipe) => parseMinutes(r.prepTime) + parseMinutes(r.cookTime);
+
+    if (recipeSort === 'recent') {
+      list.sort((a, b) => {
+        const aPrepared = a.lastPreparedAt ?? '';
+        const bPrepared = b.lastPreparedAt ?? '';
+        if (aPrepared !== bPrepared) return bPrepared.localeCompare(aPrepared);
+        const aViewed = a.lastViewedAt ?? '';
+        const bViewed = b.lastViewedAt ?? '';
+        return bViewed.localeCompare(aViewed);
+      });
+    } else if (recipeSort === 'name') {
+      list.sort((a, b) => (a.title ?? '').localeCompare(b.title ?? '', undefined, { sensitivity: 'base' }));
+    } else if (recipeSort === 'difficulty') {
+      list.sort((a, b) => difficultyOrder[a.difficulty] - difficultyOrder[b.difficulty]);
+    } else if (recipeSort === 'time') {
+      list.sort((a, b) => totalMinutes(a) - totalMinutes(b));
+    }
     return list;
-  }, [recipes, searchQuery]);
+  }, [recipes, searchQuery, recipeSort]);
 
   const handleRecipeClick = (recipe: Recipe) => {
     const updated = { ...recipe, lastViewedAt: new Date().toISOString() };
@@ -177,14 +226,14 @@ const App: React.FC = () => {
 
   const renderHome = () => (
     <div className="space-y-8 pb-24">
-      <header className="px-6 pt-8 space-y-2">
-        <h1 className="text-3xl font-bold text-stone-800 tracking-tight">Hello, Chef!</h1>
-        <p className="text-stone-500">What are we cooking today?</p>
+      <header className="px-6 pt-8 space-y-1">
+        <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Hello, Chef!</h1>
+        <p className="text-stone-500 text-sm">What are we cooking today?</p>
       </header>
 
       <div className="px-6">
         <div className="relative">
-          <span className="absolute inset-y-0 left-4 flex items-center text-stone-400">
+          <span className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-stone-400">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
           </span>
           <input
@@ -192,17 +241,35 @@ const App: React.FC = () => {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search recipes or ingredients..."
-            className="w-full bg-stone-100 rounded-2xl py-3 pl-12 pr-4 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all text-sm"
+            className="w-full bg-white border border-stone-200 rounded-xl py-3 pl-12 pr-4 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all text-sm placeholder:text-stone-400"
           />
         </div>
       </div>
 
-      <section className="px-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-stone-800">My Recipes</h2>
-          <button className="text-emerald-500 text-sm font-semibold">Sync</button>
+      <section className="px-6 space-y-5">
+        <div className="space-y-4">
+          <h2 className="text-xl font-semibold text-stone-900 tracking-tight">My Recipes</h2>
+          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 scrollbar-none">
+            {(['recent', 'name', 'difficulty', 'time'] as const).map((key) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setRecipeSort(key)}
+                className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                  recipeSort === key
+                    ? 'bg-stone-900 text-white'
+                    : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                }`}
+              >
+                {key === 'recent' && 'Recent'}
+                {key === 'name' && 'Name'}
+                {key === 'difficulty' && 'Difficulty'}
+                {key === 'time' && 'Time'}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-2 md:grid-cols-2 gap-3">
           {filteredRecipes.map(recipe => (
             <RecipeCard key={recipe.id} recipe={recipe} onClick={handleRecipeClick} />
           ))}
@@ -295,8 +362,38 @@ const App: React.FC = () => {
     );
   };
 
+  const currentVoiceLabel = VOICE_LANGUAGE_OPTIONS.find((o) => o.code === appSettings.voiceLanguage)?.label ?? 'English';
+
   return (
     <div className="max-w-md mx-auto min-h-screen bg-[#fcfcf9] shadow-2xl relative">
+      {languagePromptOption && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40" role="dialog" aria-modal="true" aria-labelledby="language-prompt-title">
+          <div className="bg-white rounded-2xl shadow-xl border border-stone-200 max-w-sm w-full p-5 space-y-4">
+            <h2 id="language-prompt-title" className="text-base font-bold text-stone-800">
+              Voice language
+            </h2>
+            <p className="text-sm text-stone-600">
+              We detected your browser language as <strong>{languagePromptOption.label}</strong>. Use it for voice responses in cooking mode?
+            </p>
+            <div className="flex flex-col gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleUseDetectedLanguage}
+                className="w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold text-sm active:scale-[0.98] transition-transform"
+              >
+                Use {languagePromptOption.label}
+              </button>
+              <button
+                type="button"
+                onClick={handleKeepCurrentLanguage}
+                className="w-full py-3 rounded-xl bg-stone-100 text-stone-700 font-medium text-sm hover:bg-stone-200 active:scale-[0.98] transition-transform"
+              >
+                No, keep {currentVoiceLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {currentView === AppView.Home && renderHome()}
       {currentView === AppView.RecipeDetail && renderRecipeDetail()}
       {currentView === AppView.RecipeSetup && selectedRecipe && authUser && (

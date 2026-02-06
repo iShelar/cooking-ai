@@ -104,20 +104,6 @@ const Settings: React.FC<SettingsProps> = ({ userId, onBack, onSaved }) => {
           <div className="divide-y divide-stone-100">
             <div className="px-6 py-4 flex items-center justify-between">
               <div>
-                <p className="font-medium text-stone-800">Units</p>
-                <p className="text-sm text-stone-500">Temperature and volume in recipes</p>
-              </div>
-              <select
-                value={settings.units}
-                onChange={(e) => update({ units: e.target.value as 'metric' | 'imperial' })}
-                className="bg-stone-100 rounded-xl py-2 px-4 text-sm font-medium text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              >
-                <option value="metric">Metric (°C, ml)</option>
-                <option value="imperial">Imperial (°F, cups)</option>
-              </select>
-            </div>
-            <div className="px-6 py-4 flex items-center justify-between">
-              <div>
                 <p className="font-medium text-stone-800">Default servings</p>
                 <p className="text-sm text-stone-500">When starting a new recipe</p>
               </div>

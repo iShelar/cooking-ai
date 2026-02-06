@@ -70,6 +70,26 @@ export const VOICE_LANGUAGE_OPTIONS: VoiceLanguageOption[] = [
   { code: 'kn', label: 'Kannada' },
 ];
 
+/** Browser locale (e.g. "en-US", "es-ES") to our voice language option. Uses navigator.language or first of navigator.languages. */
+export function getBrowserVoiceLanguage(): VoiceLanguageOption | null {
+  if (typeof navigator === 'undefined') return null;
+  const locale = (navigator.language || navigator.languages?.[0] || 'en').split('-')[0].toLowerCase();
+  return VOICE_LANGUAGE_OPTIONS.find((o) => o.code === locale) ?? null;
+}
+
+const LANGUAGE_PROMPT_STORAGE_KEY = 'cookai_voice_language_prompt_shown';
+
+export function hasShownLanguagePrompt(): boolean {
+  if (typeof localStorage === 'undefined') return true;
+  return localStorage.getItem(LANGUAGE_PROMPT_STORAGE_KEY) === '1';
+}
+
+export function setLanguagePromptShown(): void {
+  try {
+    localStorage.setItem(LANGUAGE_PROMPT_STORAGE_KEY, '1');
+  } catch (_) {}
+}
+
 /** App-wide settings used to make the app adaptive (units, voice, defaults). */
 export interface AppSettings {
   /** Temperature and volume: metric (°C, ml) vs imperial (°F, cups). */
