@@ -33,8 +33,8 @@ const RecipeCard: React.FC<RecipeCardProps> = ({ recipe, onClick }) => {
         </span>
       </div>
       <div className="p-3">
-        <h3 className="font-semibold text-stone-900 text-sm line-clamp-1">{recipe.title}</h3>
-        <p className="text-stone-500 text-xs mt-0.5 line-clamp-2">{recipe.description}</p>
+        <h3 className="font-semibold text-stone-900 text-sm line-clamp-2 leading-tight">{recipe.title}</h3>
+        <p className="text-stone-500 text-xs mt-1 line-clamp-3 leading-snug">{recipe.description}</p>
         <div className="flex items-center gap-3 mt-2 text-[11px] text-stone-400 font-medium">
           <span className="flex items-center gap-0.5">
             <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>

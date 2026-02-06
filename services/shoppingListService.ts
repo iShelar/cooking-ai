@@ -40,3 +40,31 @@ export function getMissingIngredientsForRecipe(
     .filter((ing) => typeof ing === 'string' && ing.trim() && !isInInventory(ing.trim(), inventory))
     .map((ing) => parseIngredientLine((ing as string).trim()));
 }
+
+/**
+ * Returns inventory item IDs to remove when the user has finished the recipe (ingredients used).
+ * Each recipe ingredient is matched to one inventory item by name (core name); each inventory item at most once.
+ */
+export function getInventoryIdsToSubtractForRecipe(
+  recipe: Recipe,
+  inventory: InventoryItem[]
+): string[] {
+  const ingredients = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
+  const usedIds = new Set<string>();
+  const ids: string[] = [];
+  for (const line of ingredients) {
+    const s = typeof line === 'string' ? line.trim() : '';
+    if (!s) continue;
+    const parsed = parseIngredientLine(s);
+    const ingCore = coreName(parsed.name);
+    if (!ingCore) continue;
+    const invItem = inventory.find(
+      (inv) => !usedIds.has(inv.id) && (coreName(inv.name) === ingCore || inv.name.trim().toLowerCase().includes(ingCore) || ingCore.includes(inv.name.trim().toLowerCase()))
+    );
+    if (invItem) {
+      usedIds.add(invItem.id);
+      ids.push(invItem.id);
+    }
+  }
+  return ids;
+}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { InventoryItem, ShoppingListItem } from '../types';
-import { getInventory, addInventoryItems, removeInventoryItem, getShoppingList, addShoppingListItems, removeShoppingListItem } from '../services/dbService';
+import { getInventory, addInventoryItems, addInventoryItem, removeInventoryItem, getShoppingList, addShoppingListItems, removeShoppingListItem } from '../services/dbService';
 import { parseGroceryListFromText, parseGroceryListFromImage } from '../services/geminiService';
 
 interface InventoryProps {
@@ -198,6 +198,41 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
     [userId]
   );
 
+  const handleMoveToInventory = useCallback(
+    async (item: ShoppingListItem) => {
+      try {
+        await addInventoryItem(userId, { name: item.name, quantity: item.quantity });
+        await removeShoppingListItem(userId, item.id);
+        setShoppingList((prev) => prev.filter((i) => i.id !== item.id));
+        loadInventory();
+      } catch {
+        setError('Failed to move to inventory.');
+      }
+    },
+    [userId, loadInventory]
+  );
+
+  const handleMoveAllToInventory = useCallback(async () => {
+    if (shoppingList.length === 0) return;
+    setIsProcessing(true);
+    setError(null);
+    try {
+      await addInventoryItems(
+        userId,
+        shoppingList.map((i) => ({ name: i.name, quantity: i.quantity }))
+      );
+      for (const item of shoppingList) {
+        await removeShoppingListItem(userId, item.id);
+      }
+      setShoppingList([]);
+      loadInventory();
+    } catch {
+      setError('Failed to move all to inventory.');
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [userId, shoppingList, loadInventory]);
+
   return (
     <div className="min-h-screen bg-[#faf8f5] pb-24">
       <header className="px-6 pt-8 pb-4">
@@ -284,9 +319,21 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
             </div>
           )}
           <div className="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
-            <p className="text-xs font-semibold text-stone-400 uppercase tracking-wider px-4 py-3 border-b border-stone-100">
-              Shopping list
-            </p>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-stone-100">
+              <p className="text-xs font-semibold text-stone-400 uppercase tracking-wider">
+                Shopping list
+              </p>
+              {shoppingList.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleMoveAllToInventory}
+                  disabled={isProcessing}
+                  className="text-xs font-medium text-emerald-600 hover:text-emerald-700 disabled:opacity-50"
+                >
+                  Move all to inventory
+                </button>
+              )}
+            </div>
             {shoppingListLoading ? (
               <div className="p-8 flex justify-center">
                 <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
@@ -304,14 +351,25 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
                         <p className="text-stone-400 text-xs mt-0.5">From: {item.sourceRecipeTitle}</p>
                       )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveShoppingItem(item.id)}
-                      className="p-2 rounded-lg text-stone-400 hover:bg-red-50 hover:text-red-600 transition-colors"
-                      aria-label={`Remove ${item.name}`}
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handleMoveToInventory(item)}
+                        className="p-2 rounded-lg text-stone-400 hover:bg-emerald-50 hover:text-emerald-600 transition-colors"
+                        aria-label={`Move ${item.name} to inventory`}
+                        title="Move to inventory"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveShoppingItem(item.id)}
+                        className="p-2 rounded-lg text-stone-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                        aria-label={`Remove ${item.name}`}
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                      </button>
+                    </div>
                   </li>
                 ))}
               </ul>

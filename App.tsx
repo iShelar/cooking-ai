@@ -11,6 +11,7 @@ import Login from './components/Login';
 import Profile from './components/Profile';
 import Settings from './components/Settings';
 import Inventory from './components/Inventory';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { DEFAULT_RECIPE_IMAGE } from './constants';
 import { getAllRecipes, getAppSettings, saveAppSettings, updateRecipeInDB, getInventory, addShoppingListItems } from './services/dbService';
 import { getMissingIngredientsForRecipe } from './services/shoppingListService';
@@ -233,7 +234,11 @@ const App: React.FC = () => {
   );
 
   if (!authChecked) return renderLoading('Loading...');
-  if (!authUser) return <Login onSuccess={() => {}} />;
+  if (!authUser) return (
+    <ErrorBoundary>
+      <Login onSuccess={() => {}} />
+    </ErrorBoundary>
+  );
   if (isLoading) return renderLoading('Initializing...');
   if (loadError) {
     return (
@@ -450,68 +455,93 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
-      {currentView === AppView.Home && renderHome()}
-      {currentView === AppView.RecipeDetail && renderRecipeDetail()}
+      {currentView === AppView.Home && (
+        <ErrorBoundary>
+          {renderHome()}
+        </ErrorBoundary>
+      )}
+      {currentView === AppView.RecipeDetail && (
+        <ErrorBoundary onReset={() => setCurrentView(AppView.Home)}>
+          {renderRecipeDetail()}
+        </ErrorBoundary>
+      )}
       {currentView === AppView.RecipeSetup && selectedRecipe && authUser && (
-        <RecipeSetup
-          recipe={selectedRecipe}
-          onComplete={onSetupComplete}
-          onCancel={() => setCurrentView(AppView.RecipeDetail)}
-          appSettings={appSettings}
-          userId={authUser.uid}
-        />
+        <ErrorBoundary onReset={() => setCurrentView(AppView.RecipeDetail)}>
+          <RecipeSetup
+            recipe={selectedRecipe}
+            onComplete={onSetupComplete}
+            onCancel={() => setCurrentView(AppView.RecipeDetail)}
+            appSettings={appSettings}
+            userId={authUser.uid}
+          />
+        </ErrorBoundary>
       )}
       {currentView === AppView.CookingMode && scaledRecipe && (
-        <CookingMode
-          recipe={scaledRecipe}
-          onExit={() => setCurrentView(AppView.RecipeDetail)}
-          appSettings={appSettings}
-        />
+        <ErrorBoundary onReset={() => setCurrentView(AppView.RecipeDetail)}>
+          <CookingMode
+            recipe={scaledRecipe}
+            onExit={() => setCurrentView(AppView.RecipeDetail)}
+            appSettings={appSettings}
+            userId={authUser?.uid}
+          />
+        </ErrorBoundary>
       )}
       {currentView === AppView.Scanner && (
-        <IngredientScanner
-          onClose={() => setCurrentView(AppView.Home)}
-          onSelectRecipe={handleScannedRecipe}
-        />
+        <ErrorBoundary onReset={() => setCurrentView(AppView.Home)}>
+          <IngredientScanner
+            onClose={() => setCurrentView(AppView.Home)}
+            onSelectRecipe={handleScannedRecipe}
+          />
+        </ErrorBoundary>
       )}
       {currentView === AppView.Inventory && authUser && (
-        <Inventory userId={authUser.uid} />
+        <ErrorBoundary onReset={() => setCurrentView(AppView.Home)}>
+          <Inventory userId={authUser.uid} />
+        </ErrorBoundary>
       )}
       {currentView === AppView.Profile && authUser && (
-        <Profile
-          user={authUser}
-          onBack={() => setCurrentView(AppView.Home)}
-          onOpenSettings={() => setCurrentView(AppView.Settings)}
-        />
+        <ErrorBoundary onReset={() => setCurrentView(AppView.Home)}>
+          <Profile
+            user={authUser}
+            onBack={() => setCurrentView(AppView.Home)}
+            onOpenSettings={() => setCurrentView(AppView.Settings)}
+          />
+        </ErrorBoundary>
       )}
       {currentView === AppView.Settings && authUser && (
-        <Settings
-          userId={authUser.uid}
-          onBack={() => setCurrentView(AppView.Profile)}
-          onSaved={(s) => setAppSettings(s)}
-        />
+        <ErrorBoundary onReset={() => setCurrentView(AppView.Profile)}>
+          <Settings
+            userId={authUser.uid}
+            onBack={() => setCurrentView(AppView.Profile)}
+            onSaved={(s) => setAppSettings(s)}
+          />
+        </ErrorBoundary>
       )}
       {currentView === AppView.CreateFromYouTube && authUser && (
-        <CreateFromYouTube
-          userId={authUser.uid}
-          onCreated={(recipe) => {
-            setRecipes((prev) => [...prev.filter((r) => r.id !== recipe.id), recipe]);
-            setSelectedRecipe(recipe);
-            setCurrentView(AppView.RecipeDetail);
-          }}
-          onCancel={() => setCurrentView(AppView.Home)}
-        />
+        <ErrorBoundary onReset={() => setCurrentView(AppView.Home)}>
+          <CreateFromYouTube
+            userId={authUser.uid}
+            onCreated={(recipe) => {
+              setRecipes((prev) => [...prev.filter((r) => r.id !== recipe.id), recipe]);
+              setSelectedRecipe(recipe);
+              setCurrentView(AppView.RecipeDetail);
+            }}
+            onCancel={() => setCurrentView(AppView.Home)}
+          />
+        </ErrorBoundary>
       )}
       {currentView === AppView.CreateFromChat && authUser && (
-        <CreateFromChat
-          userId={authUser.uid}
-          onCreated={(recipe) => {
-            setRecipes((prev) => [...prev.filter((r) => r.id !== recipe.id), recipe]);
-            setSelectedRecipe(recipe);
-            setCurrentView(AppView.RecipeDetail);
-          }}
-          onCancel={() => setCurrentView(AppView.Home)}
-        />
+        <ErrorBoundary onReset={() => setCurrentView(AppView.Home)}>
+          <CreateFromChat
+            userId={authUser.uid}
+            onCreated={(recipe) => {
+              setRecipes((prev) => [...prev.filter((r) => r.id !== recipe.id), recipe]);
+              setSelectedRecipe(recipe);
+              setCurrentView(AppView.RecipeDetail);
+            }}
+            onCancel={() => setCurrentView(AppView.Home)}
+          />
+        </ErrorBoundary>
       )}
 
       {BOTTOM_NAV_VIEWS.includes(currentView) && (

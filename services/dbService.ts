@@ -1,10 +1,11 @@
-import { getDoc, setDoc, doc, getDocs, collection, deleteDoc } from 'firebase/firestore';
+import { getDoc, setDoc, doc, getDocs, collection, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { Recipe, UserPreferences, AppSettings, DEFAULT_APP_SETTINGS, InventoryItem, ShoppingListItem } from '../types';
 import {
   getRecipesFromFirestore,
   updateRecipeInFirestore,
 } from './recipeService';
+import { getInventoryIdsToSubtractForRecipe } from './shoppingListService';
 
 /** Recipes: users/{userId}/recipes/{recipeId} */
 export const getAllRecipes = async (userId: string): Promise<Recipe[]> => {
@@ -110,6 +111,23 @@ export const addInventoryItems = async (userId: string, items: Omit<InventoryIte
 export const removeInventoryItem = async (userId: string, itemId: string): Promise<void> => {
   const ref = doc(db, 'users', userId, 'inventory', itemId);
   await deleteDoc(ref);
+};
+
+export const updateInventoryItem = async (userId: string, itemId: string, updates: { quantity?: string }): Promise<void> => {
+  const ref = doc(db, 'users', userId, 'inventory', itemId);
+  await updateDoc(ref, updates as Record<string, unknown>);
+};
+
+/**
+ * When the user has finished cooking the recipe, subtract used ingredients from inventory.
+ * Matches each recipe ingredient to one inventory item by name and removes that item.
+ */
+export const subtractRecipeIngredientsFromInventory = async (userId: string, recipe: Recipe): Promise<void> => {
+  const inventory = await getInventory(userId);
+  const idsToRemove = getInventoryIdsToSubtractForRecipe(recipe, inventory);
+  for (const itemId of idsToRemove) {
+    await removeInventoryItem(userId, itemId);
+  }
 };
 
 /** Shopping list: users/{userId}/shoppingList/{itemId} */

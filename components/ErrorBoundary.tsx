@@ -3,6 +3,8 @@ import React, { ErrorInfo, ReactNode } from 'react';
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
+  /** Called when user clicks Try again / Go back; use to navigate away and recover. */
+  onReset?: () => void;
 }
 
 interface State {
@@ -22,6 +24,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 
   handleRetry = (): void => {
+    (this as React.Component<Props, State>).props.onReset?.();
     (this as React.Component<Props, State>).setState({ hasError: false, error: null });
   };
 
@@ -46,7 +49,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
             onClick={this.handleRetry}
             className="px-6 py-3 bg-emerald-600 text-white font-semibold rounded-2xl hover:bg-emerald-700 active:scale-[0.98] transition-all"
           >
-            Try again
+            {props.onReset ? 'Go back' : 'Try again'}
           </button>
         </div>
       );

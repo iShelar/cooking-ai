@@ -3,11 +3,14 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Recipe, AppSettings, DEFAULT_APP_SETTINGS, VOICE_LANGUAGE_OPTIONS } from '../types';
 import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration } from '@google/genai';
 import { decode, encode, decodeAudioData } from '../services/geminiService';
+import { subtractRecipeIngredientsFromInventory } from '../services/dbService';
 
 interface CookingModeProps {
   recipe: Recipe;
   onExit: () => void;
   appSettings?: AppSettings | null;
+  /** When set, finishing the recipe will subtract used ingredients from this user's inventory. */
+  userId?: string;
 }
 
 /** Parse MM:SS or M:SS to seconds for YouTube t= param */
@@ -67,7 +70,7 @@ const formatTempForDisplay = (suggestion: string, units: 'metric' | 'imperial'):
 /** Set to true to show the Heat Level UI in cooking mode. */
 const SHOW_HEAT_UI = false;
 
-const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: settings }) => {
+const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: settings, userId }) => {
   const appSettings = settings ?? DEFAULT_APP_SETTINGS;
   const [currentStep, setCurrentStep] = useState(0);
   const [isListening, setIsListening] = useState(false);
@@ -105,6 +108,11 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: 
   const [ytApiReady, setYtApiReady] = useState(false);
   /** Increment to force video iframe to be destroyed and recreated (reload without full page refresh). */
   const [videoReloadKey, setVideoReloadKey] = useState(0);
+  /** When on last step, user can dismiss the finish bar; we show it again after the 2.5 min reminder. */
+  const [finishPromptDismissed, setFinishPromptDismissed] = useState(false);
+
+  const reachedLastStepAtRef = useRef<number | null>(null);
+  const finishReminderTimeoutRef = useRef<number | null>(null);
 
   const stepsCount = recipe.steps.length;
   const videoId = recipe.videoUrl ? getYouTubeVideoId(recipe.videoUrl) : '';
@@ -116,6 +124,33 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: 
   useEffect(() => {
     currentStepRef.current = currentStep;
   }, [currentStep]);
+
+  const isOnLastStep = stepsCount > 0 && currentStep === stepsCount - 1;
+  // When user reaches last step: record time and set 2.5 min reminder. When they leave last step, clear.
+  useEffect(() => {
+    if (!isOnLastStep) {
+      reachedLastStepAtRef.current = null;
+      if (finishReminderTimeoutRef.current) {
+        clearTimeout(finishReminderTimeoutRef.current);
+        finishReminderTimeoutRef.current = null;
+      }
+      return;
+    }
+    if (reachedLastStepAtRef.current === null) reachedLastStepAtRef.current = Date.now();
+    if (finishReminderTimeoutRef.current) return;
+    finishReminderTimeoutRef.current = window.setTimeout(() => {
+      finishReminderTimeoutRef.current = null;
+      setFinishPromptDismissed(false);
+      setToolNotification("Done cooking? Update your inventory below.");
+      setTimeout(() => setToolNotification(null), 4000);
+    }, 2.5 * 60 * 1000);
+    return () => {
+      if (finishReminderTimeoutRef.current) {
+        clearTimeout(finishReminderTimeoutRef.current);
+        finishReminderTimeoutRef.current = null;
+      }
+    };
+  }, [isOnLastStep]);
   useEffect(() => {
     audioSourceRef.current = audioSource;
   }, [audioSource]);
@@ -498,6 +533,14 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
         },
         required: ['muted']
       }
+    },
+    {
+      name: 'finishRecipe',
+      parameters: {
+        type: Type.OBJECT,
+        description: 'Call when the user says they have finished cooking the recipe (e.g. "I\'m done", "we\'re finished", "recipe complete", "all done"). This subtracts the recipe ingredients from their inventory and exits cooking mode.',
+        properties: {}
+      }
     }
   ];
 
@@ -562,6 +605,19 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
             } catch (_) {}
           }
         }
+        else if (fc.name === 'finishRecipe') {
+          if (userId) {
+            subtractRecipeIngredientsFromInventory(userId, recipe).then(() => {
+              notify('Ingredients subtracted from inventory.');
+              onExit();
+            }).catch(() => {
+              notify('Could not update inventory.');
+              onExit();
+            });
+          } else {
+            onExit();
+          }
+        }
 
         sessionRef.current?.sendToolResponse({
           functionResponses: { id: fc.id, name: fc.name, response: { result: "ok" } }
@@ -585,7 +641,7 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
       newTurnStartedRef.current = true;
       stopAudio();
     }
-  }, [appSettings.voiceSpeed, triggerNextStep, triggerPrevStep, triggerGoToStep, triggerStartTimer, triggerPauseTimer, triggerResumeTimer, triggerStopTimer, triggerSetTemperature, stopAudio]);
+  }, [appSettings.voiceSpeed, userId, recipe, onExit, triggerNextStep, triggerPrevStep, triggerGoToStep, triggerStartTimer, triggerPauseTimer, triggerResumeTimer, triggerStopTimer, triggerSetTemperature, stopAudio]);
 
   const toggleVoiceAssistant = async () => {
     if (isListening) {
@@ -699,7 +755,9 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
           4. NEVER repeat the step number twice. After calling a step tool, give one short confirmation and only the instruction, e.g. "Okay. Chop the onions."
           5. NEVER say technical indices like "Index 0" to the user. Say "Step 1" only when they ask which step (and say it once).
           6. Respond instantly and concisely.
-          7. If noise is high, keep your verbal confirmations short but clear.`,
+          7. If noise is high, keep your verbal confirmations short but clear.
+          
+          FINISHING THE RECIPE: When the user says they have finished cooking (e.g. "I'm done", "we're finished", "recipe complete", "all done", "finished"), call finishRecipe() once. Confirm briefly (e.g. "Done! I've updated your inventory.") then the app will exit cooking mode.`,
           outputAudioTranscription: {},
         }
       });
@@ -714,6 +772,18 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
     const s = seconds % 60;
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
+
+  const handleFinishRecipe = useCallback(async () => {
+    if (userId) {
+      try {
+        await subtractRecipeIngredientsFromInventory(userId, recipe);
+        notify('Ingredients subtracted from inventory.');
+      } catch {
+        notify('Could not update inventory.');
+      }
+    }
+    onExit();
+  }, [userId, recipe, onExit]);
 
   return (
     <div className="fixed inset-0 z-50 flex justify-center items-center overflow-hidden bg-stone-200/40 h-full min-h-dvh">
@@ -877,7 +947,9 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
                 {aiResponse}
               </p>
             ) : (
-              <p className="text-sm text-stone-400 italic">Replies appear here when you talk.</p>
+              <p className="text-sm text-stone-500">
+                Tap the mic below to start. Then ask for the next step, set a timer, or control the video with your voice.
+              </p>
             )}
           </div>
         </div>
@@ -894,8 +966,12 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
                 style={{ transform: `scale(${2 + inputVolume * 10})` }}
               ></div>
             )}
+            {!isListening && (
+              <div className="absolute inset-0 rounded-full bg-emerald-400/30 animate-mic-pulse pointer-events-none" aria-hidden />
+            )}
             <button
               onClick={toggleVoiceAssistant}
+              title="Start voice assistant for hands-free cooking"
               className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg relative z-10 transition-all active:scale-95 ${isListening ? 'bg-emerald-600' : 'bg-emerald-500'}`}
             >
               {isListening ? (
@@ -923,8 +999,8 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
             <svg className="w-5 h-5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
           </button>
         </div>
-        <div className="text-center text-stone-400 text-[10px] font-black uppercase tracking-widest h-3">
-          {isListening ? (isAssistantSpeaking ? "Assistant Speaking" : "Listening...") : "Tap for Hands-Free Mode"}
+        <div className="text-center text-stone-500 text-[10px] font-black uppercase tracking-widest min-h-[0.75rem] px-2">
+          {isListening ? (isAssistantSpeaking ? "Assistant Speaking" : "Listening...") : "Tap to start voice assistant"}
         </div>
         {recipe.videoUrl && (
           <div className="flex items-center justify-center gap-2">
@@ -945,10 +1021,37 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
         )}
         </div>
       </div>
+
+      {isOnLastStep && !finishPromptDismissed && (
+        <div
+          className="absolute bottom-0 left-0 right-0 z-50 px-4 pb-4 pt-3 bg-white/95 backdrop-blur-sm border-t border-stone-200 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]"
+          style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+        >
+          <p className="text-stone-600 text-sm text-center mb-3">Done cooking? Update your inventory when you're finished.</p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleFinishRecipe}
+              className="flex-1 py-2.5 rounded-xl bg-emerald-500 text-white font-semibold text-sm hover:bg-emerald-600 active:scale-[0.98] transition-all"
+            >
+              Update inventory & exit
+            </button>
+            <button
+              type="button"
+              onClick={() => setFinishPromptDismissed(true)}
+              className="px-4 py-2.5 rounded-xl border border-stone-300 text-stone-600 font-medium text-sm hover:bg-stone-50 active:scale-[0.98] transition-all"
+            >
+              Not yet
+            </button>
+          </div>
+        </div>
+      )}
       </div>
 
       <style>{`
         @keyframes wave { 0%, 100% { height: 40%; } 50% { height: 100%; } }
+        @keyframes mic-pulse { 0%, 100% { opacity: 0.4; transform: scale(1.15); } 50% { opacity: 0.7; transform: scale(1.25); } }
+        .animate-mic-pulse { animation: mic-pulse 2s ease-in-out infinite; }
         .captions-panel .overflow-y-auto::-webkit-scrollbar { width: 5px; }
         .captions-panel .overflow-y-auto::-webkit-scrollbar-track { background: #f5f5f4; border-radius: 3px; }
         .captions-panel .overflow-y-auto::-webkit-scrollbar-thumb { background: #d6d3d1; border-radius: 3px; }
