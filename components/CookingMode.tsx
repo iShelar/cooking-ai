@@ -701,9 +701,10 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
   };
 
   return (
-    <div className="fixed inset-0 bg-stone-50 z-50 flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 flex justify-center overflow-hidden bg-stone-200/40">
+      <div className="w-full max-w-md min-h-full bg-stone-50 shadow-2xl flex flex-col overflow-hidden">
       {toolNotification && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[60] animate-in slide-in-from-top-4 fade-in duration-300">
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[60] animate-in slide-in-from-top-4 fade-in duration-300 pointer-events-none">
           <div className="bg-stone-900 text-white px-5 py-2.5 rounded-full shadow-2xl font-bold text-xs flex items-center gap-2">
             <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></div>
             {toolNotification}
@@ -822,7 +823,7 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
 
       <div className="bg-white border-t border-stone-200 flex flex-col flex-shrink-0">
         <div
-          className={`rounded-t-2xl bg-stone-50 border border-stone-200 border-b-0 shadow-sm overflow-hidden flex flex-col captions-panel flex-shrink-0 transition-[max-height] duration-300 ease-out ${assistantExpanded ? 'max-h-[14rem]' : 'max-h-[5.25rem]'}`}
+          className={`rounded-t-2xl bg-stone-50 border border-stone-200 border-b-0 shadow-sm overflow-hidden flex flex-col captions-panel flex-shrink-0 transition-[max-height] duration-300 ease-out ${assistantExpanded ? 'max-h-[14rem]' : 'max-h-[2.75rem]'}`}
         >
           <button
             type="button"
@@ -835,7 +836,10 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
             </div>
             <span className="text-[9px] text-stone-400">{assistantExpanded ? 'Collapse' : 'Expand'}</span>
           </button>
-          <div ref={captionsScrollRef} className="px-4 py-3 flex-1 min-h-0 overflow-y-auto overflow-x-hidden text-left">
+          <div
+            ref={captionsScrollRef}
+            className={`px-4 py-3 overflow-x-hidden text-left transition-[max-height] duration-300 ease-out captions-panel ${assistantExpanded ? 'flex-1 min-h-0 overflow-y-auto max-h-[11rem]' : 'max-h-0 min-h-0 overflow-hidden'}`}
+          >
             {aiResponse ? (
               <p className="text-[14px] leading-relaxed text-stone-800 animate-in fade-in duration-200">
                 {aiResponse}
@@ -908,6 +912,7 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
           </div>
         )}
         </div>
+      </div>
       </div>
 
       <style>{`
