@@ -10,8 +10,10 @@ import CreateFromChat from './components/CreateFromChat';
 import Login from './components/Login';
 import Profile from './components/Profile';
 import Settings from './components/Settings';
+import Inventory from './components/Inventory';
 import { DEFAULT_RECIPE_IMAGE } from './constants';
-import { getAllRecipes, getAppSettings, saveAppSettings, updateRecipeInDB } from './services/dbService';
+import { getAllRecipes, getAppSettings, saveAppSettings, updateRecipeInDB, getInventory, addShoppingListItems } from './services/dbService';
+import { getMissingIngredientsForRecipe } from './services/shoppingListService';
 import { subscribeToAuthState } from './services/authService';
 import type { User } from 'firebase/auth';
 
@@ -42,6 +44,9 @@ const App: React.FC = () => {
   /** When set, show the "use browser language for voice?" prompt once at start. */
   const [languagePromptOption, setLanguagePromptOption] = useState<{ code: string; label: string } | null>(null);
   const languagePromptCheckedRef = useRef(false);
+  /** Toast after adding recipe to shopping list. */
+  const [shoppingListToast, setShoppingListToast] = useState<string | null>(null);
+  const [shoppingListAdding, setShoppingListAdding] = useState(false);
 
   useEffect(() => {
     const unsubscribe = subscribeToAuthState((user) => {
@@ -192,6 +197,32 @@ const App: React.FC = () => {
     setCurrentView(AppView.RecipeDetail);
   };
 
+  const addRecipeToShoppingList = useCallback(async () => {
+    if (!authUser || !selectedRecipe) return;
+    setShoppingListAdding(true);
+    setShoppingListToast(null);
+    try {
+      const inventory = await getInventory(authUser.uid);
+      const missing = getMissingIngredientsForRecipe(selectedRecipe, inventory);
+      if (missing.length === 0) {
+        setShoppingListToast('You have all ingredients in your inventory.');
+      } else {
+        await addShoppingListItems(authUser.uid, missing.map((m) => ({
+          name: m.name,
+          quantity: m.quantity,
+          sourceRecipeId: selectedRecipe.id,
+          sourceRecipeTitle: selectedRecipe.title,
+        })));
+        setShoppingListToast(`Added ${missing.length} item${missing.length === 1 ? '' : 's'} to shopping list.`);
+      }
+      setTimeout(() => setShoppingListToast(null), 4000);
+    } catch {
+      setShoppingListToast('Failed to add to shopping list.');
+    } finally {
+      setShoppingListAdding(false);
+    }
+  }, [authUser, selectedRecipe]);
+
   const renderLoading = (message: string) => (
     <div className="max-w-md mx-auto h-screen flex items-center justify-center bg-[#fcfcf9]">
       <div className="flex flex-col items-center gap-4">
@@ -330,6 +361,26 @@ const App: React.FC = () => {
                 </li>
               ))}
             </ul>
+            {authUser && (
+              <button
+                type="button"
+                onClick={addRecipeToShoppingList}
+                disabled={shoppingListAdding}
+                className="w-full py-3 rounded-xl border-2 border-dashed border-stone-200 text-stone-600 font-medium text-sm hover:border-emerald-400 hover:text-emerald-700 hover:bg-emerald-50/50 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                {shoppingListAdding ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                    Checking inventory…
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                    Add missing to shopping list
+                  </>
+                )}
+              </button>
+            )}
           </div>
 
           <div className="space-y-4">
@@ -347,6 +398,11 @@ const App: React.FC = () => {
           </div>
         </div>
 
+        {shoppingListToast && (
+          <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[60] max-w-md w-[calc(100%-2rem)] px-4 py-3 rounded-xl bg-stone-800 text-white text-sm font-medium text-center shadow-lg">
+            {shoppingListToast}
+          </div>
+        )}
         <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center pointer-events-none">
           <div className="w-full max-w-md p-6 pt-20 pointer-events-auto bg-gradient-to-t from-white via-white to-white/0">
             <button
@@ -418,6 +474,9 @@ const App: React.FC = () => {
           onSelectRecipe={handleScannedRecipe}
         />
       )}
+      {currentView === AppView.Inventory && authUser && (
+        <Inventory userId={authUser.uid} />
+      )}
       {currentView === AppView.Profile && authUser && (
         <Profile
           user={authUser}
@@ -457,13 +516,20 @@ const App: React.FC = () => {
 
       {BOTTOM_NAV_VIEWS.includes(currentView) && (
         <>
-          <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/80 backdrop-blur-md border-t border-stone-200 px-8 py-4 flex items-center justify-between z-40">
+          <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/80 backdrop-blur-md border-t border-stone-200 px-4 py-3 flex items-center justify-between gap-1 z-40">
             <button
               onClick={() => setCurrentView(AppView.Home)}
               className={`p-2 rounded-xl transition-colors ${currentView === AppView.Home ? 'text-emerald-600 bg-emerald-50' : 'text-stone-400'}`}
               title="Home"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7-7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
+            </button>
+            <button
+              onClick={() => setCurrentView(AppView.Inventory)}
+              className={`p-2 rounded-xl transition-colors ${currentView === AppView.Inventory ? 'text-emerald-600 bg-emerald-50' : 'text-stone-400'}`}
+              title="Grocery inventory"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
             </button>
             <button
               onClick={() => setShowRecipePrepMenu(true)}

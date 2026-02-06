@@ -43,19 +43,19 @@ To use **Create from YouTube** (turn a cooking video into a recipe with step tim
 will ask few questions if they wanna skip.
 5. Fix performance issue and also UI bugs - Not hearing the voice when noise is there 
 + Should respond quickly.
-6. Search functionality
+<!-- 6. Search functionality -->
 <!-- 7. Instagram - Feature scope -->
 8. Voice command - fully automate
-9. Voice icon - sticky on corner.
+<!-- 9. Voice icon - sticky on corner. -->
 10. Once done - we will use inventory items and save it at end.
 11. Bugs - on mobile device - not able to start the video using voice.
 <!-- 12. Generate recipes using prompt. -->
-13. Fix youtube recipe generation flow.
-14. Prompt user if they wanna change the laguage or not.
+<!-- 13. Fix youtube recipe generation flow. -->
+<!-- 14. Prompt user if they wanna change the laguage or not. -->
 <!-- 15. Image is not properly set (thumbnail or gen ai)~~ — When a recipe has no image 
 (or only a placeholder), the app generates a realistic image with Gemini, stores it 
 in Firebase Storage, and links it to the recipe in the DB. -->
 16. Share recipes
-17. Whenever recipe start or if important it should ask for timer and heat level. so 
-user will know -> every time show the heat level.
+<!-- 17. Whenever recipe start or if important it should ask for timer and heat level. so 
+user will know -> every time show the heat level. -->
 18. Few curated recipes - we will standardize

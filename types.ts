@@ -43,6 +43,24 @@ export interface UserPreferences {
   skillLevel: 'Beginner' | 'Intermediate' | 'Advanced';
 }
 
+/** Single grocery/inventory item for the user's list. */
+export interface InventoryItem {
+  id: string;
+  name: string;
+  quantity?: string;
+  addedAt: string;
+}
+
+/** Item on the user's shopping list (e.g. generated from a recipe). */
+export interface ShoppingListItem {
+  id: string;
+  name: string;
+  quantity?: string;
+  addedAt: string;
+  sourceRecipeId?: string;
+  sourceRecipeTitle?: string;
+}
+
 /** Voice language option for Settings dropdown. */
 export interface VoiceLanguageOption {
   code: string;

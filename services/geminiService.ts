@@ -21,6 +21,71 @@ export const scanIngredientsFromImage = async (base64Image: string) => {
   return response.text?.split(',').map(s => s.trim()) || [];
 };
 
+/** Parsed grocery item for inventory (name + optional quantity). */
+export interface ParsedGroceryItem {
+  name: string;
+  quantity?: string;
+}
+
+/** Parse free-form text (chat or voice transcript) into a list of grocery items. */
+export const parseGroceryListFromText = async (text: string): Promise<ParsedGroceryItem[]> => {
+  const ai = getGeminiInstance();
+  const prompt = `The user wrote or spoke their grocery/ingredients list. Extract every item into a JSON array. For each item include "name" (string) and "quantity" (string) when they gave a number or amount.
+
+Infer the unit for quantity when the user gives only a number:
+- Liquids (milk, oil, water, juice): use ml or L (e.g. milk 100 → "100ml", milk 1 → "1L").
+- Solids/dry goods (flour, sugar, rice): use g or kg (e.g. flour 500 → "500g", rice 2 → "2kg").
+- Countable (eggs, apples, onions): number as-is (e.g. eggs 2 → "2").
+If the user already wrote a unit (e.g. "500g", "1L"), keep it. Otherwise infer from the item type. Always output quantity with unit where appropriate. User input: "${text.trim()}"`;
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash',
+    contents: prompt,
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            name: { type: Type.STRING },
+            quantity: { type: Type.STRING },
+          },
+          required: ['name'],
+        },
+      },
+    },
+  });
+  const raw = response.text ?? '[]';
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+};
+
+/** Parse an image (receipt, pantry, shopping list photo) into grocery items. */
+export const parseGroceryListFromImage = async (base64Image: string): Promise<ParsedGroceryItem[]> => {
+  const ai = getGeminiInstance();
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash-image',
+    contents: {
+      parts: [
+        { inlineData: { data: base64Image, mimeType: 'image/jpeg' } },
+        {
+          text: 'This image may show a receipt, shopping list, groceries, or pantry. Extract every grocery or food item into a JSON array. Each element: {"name": "item name", "quantity": "optional qty"}. Return only the JSON array, e.g. [{"name":"milk","quantity":"2"},{"name":"eggs"}]',
+        },
+      ],
+    },
+  });
+  const raw = response.text ?? '[]';
+  const cleaned = raw.replace(/```json?\s*|\s*```/g, '').trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    return [];
+  }
+};
+
 export const getRecipeRecommendations = async (ingredients: string[]) => {
   const ai = getGeminiInstance();
   const response = await ai.models.generateContent({
