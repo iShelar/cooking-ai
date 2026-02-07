@@ -40,6 +40,10 @@ To use **Create from YouTube** (turn a cooking video into a recipe you can follo
 2. Or run the CLI and paste the JSON:  
    `node src/index.js "https://www.youtube.com/watch?v=..."` then copy the generated file from `data/` and paste into the app’s **Create from YouTube** screen.
 
+## Share recipe
+
+From a recipe’s detail screen, tap **Share** (icon in the header). The app creates a link and copies it to the clipboard. Anyone with the link can open the recipe (read-only) and, if signed in, tap **Save to my recipes** to add a copy to their collection. Shared data is stored in the `sharedRecipes` Firestore collection (see [firestore.rules](firestore.rules)). When deploying, ensure your host serves the app’s `index.html` for paths under `/share/*` (SPA fallback) so share links work.
+
 ## PWA (Progressive Web App)
 
 The app is set up as a PWA so users can install it on their phone or desktop (Add to Home Screen / Install app).

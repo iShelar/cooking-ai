@@ -16,6 +16,7 @@ import DietarySurvey from './components/DietarySurvey';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { DEFAULT_RECIPE_IMAGE, MOCK_RECIPES } from './constants';
 import { getAllRecipes, getAppSettings, saveAppSettings, getPreferences, savePreferences, updateRecipeInDB, deleteRecipeInDB, getInventory, addShoppingListItems } from './services/dbService';
+import { createShare, getSharedRecipe } from './services/shareService';
 import { getMissingIngredientsForRecipe } from './services/shoppingListService';
 import { subscribeToAuthState } from './services/authService';
 import type { User } from 'firebase/auth';
@@ -70,6 +71,23 @@ const App: React.FC = () => {
   /** When true, highlight the bottom bar + button and then open recipe prep menu (first-recipe tutorial). */
   const [highlightAddRecipeButton, setHighlightAddRecipeButton] = useState(false);
   const addRecipeTutorialShownRef = useRef(false);
+  /** Share link: when opening /share/TOKEN we set these and show SharedRecipe view. */
+  const [sharedRecipeToken, setSharedRecipeToken] = useState<string | null>(null);
+  const [sharedRecipe, setSharedRecipe] = useState<Recipe | null>(null);
+  const [sharedRecipeLoading, setSharedRecipeLoading] = useState(false);
+  const [sharedRecipeError, setSharedRecipeError] = useState<string | null>(null);
+  const [shareToast, setShareToast] = useState<string | null>(null);
+  const [savingSharedRecipe, setSavingSharedRecipe] = useState(false);
+
+  // On first load, if URL is /share/TOKEN, show shared recipe view.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.location.pathname.startsWith('/share/')) return;
+    const segment = window.location.pathname.slice(7).split('/')[0]?.trim();
+    if (segment) {
+      setSharedRecipeToken(segment);
+      setCurrentView(AppView.SharedRecipe);
+    }
+  }, []);
 
   useEffect(() => {
     const unsubscribe = subscribeToAuthState((user) => {
@@ -101,6 +119,30 @@ const App: React.FC = () => {
       }
     });
     return () => unsubscribe();
+  }, []);
+
+  // Fetch shared recipe when viewing a share link.
+  useEffect(() => {
+    if (currentView !== AppView.SharedRecipe || !sharedRecipeToken) return;
+    setSharedRecipeLoading(true);
+    setSharedRecipeError(null);
+    getSharedRecipe(sharedRecipeToken)
+      .then((doc) => {
+        if (doc) setSharedRecipe(doc.recipe);
+        else setSharedRecipeError("This link doesn't work anymore. It may have been removed or expired.");
+      })
+      .catch(() => setSharedRecipeError("We couldn't load this recipe. Try again?"))
+      .finally(() => setSharedRecipeLoading(false));
+  }, [currentView, sharedRecipeToken]);
+
+  const goHomeFromShare = useCallback(() => {
+    setCurrentView(AppView.Home);
+    setSharedRecipeToken(null);
+    setSharedRecipe(null);
+    setSharedRecipeError(null);
+    if (typeof window !== 'undefined' && window.history) {
+      window.history.replaceState({ view: AppView.Home } as HistoryState, '', '/');
+    }
   }, []);
 
   const loadData = useCallback(async () => {
@@ -380,6 +422,44 @@ const App: React.FC = () => {
     }
   }, [authUser, selectedRecipe]);
 
+  const handleShareRecipe = useCallback(async () => {
+    if (!authUser || !selectedRecipe) return;
+    try {
+      const token = await createShare(selectedRecipe, authUser.uid);
+      const url = `${window.location.origin}/share/${token}`;
+      await navigator.clipboard.writeText(url);
+      setShareToast('Link copied! Share it with anyone.');
+      setTimeout(() => setShareToast(null), 3000);
+    } catch {
+      setShareToast("Couldn't create share link. Try again?");
+      setTimeout(() => setShareToast(null), 3000);
+    }
+  }, [authUser, selectedRecipe]);
+
+  const handleSaveSharedRecipe = useCallback(async () => {
+    if (!authUser || !sharedRecipe) return;
+    setSavingSharedRecipe(true);
+    try {
+      const copy: Recipe = { ...sharedRecipe, id: `shared-${Date.now()}` };
+      await updateRecipeInDB(authUser.uid, copy);
+      setRecipes((prev) => [...prev, copy]);
+      setSharedRecipeToken(null);
+      setSharedRecipe(null);
+      setSharedRecipeError(null);
+      setCurrentView(AppView.Home);
+      setSelectedRecipe(copy);
+      setScaledRecipe(copy);
+      if (typeof window !== 'undefined' && window.history) {
+        window.history.replaceState({ view: AppView.Home } as HistoryState, '', '/');
+      }
+      setTimeout(() => navigateTo(AppView.RecipeDetail, copy), 100);
+    } catch {
+      setSharedRecipeError("Couldn't save to your recipes. Try again?");
+    } finally {
+      setSavingSharedRecipe(false);
+    }
+  }, [authUser, sharedRecipe]);
+
   const addRecipeToShoppingList = useCallback(async () => {
     if (!authUser || !selectedRecipe) return;
     setShoppingListAdding(true);
@@ -418,11 +498,89 @@ const App: React.FC = () => {
   );
 
   if (!authChecked) return renderLoading('One sec…');
-  if (!authUser) return (
+  if (!authUser && currentView !== AppView.SharedRecipe) return (
     <ErrorBoundary>
       <Login onSuccess={() => {}} />
     </ErrorBoundary>
   );
+  // Shared recipe view: can be shown without login (read-only; "Sign in to save" if not logged in).
+  if (currentView === AppView.SharedRecipe) {
+    if (sharedRecipeLoading) return renderLoading('Loading recipe…');
+    if (sharedRecipeError) {
+      return (
+        <div className="max-w-md mx-auto min-h-screen bg-[#fcfcf9] flex flex-col items-center justify-center px-6">
+          <p className="text-stone-600 text-center mb-6">{sharedRecipeError}</p>
+          <button onClick={goHomeFromShare} className="px-6 py-3 bg-emerald-600 text-white font-semibold rounded-2xl hover:bg-emerald-700">
+            Go home
+          </button>
+        </div>
+      );
+    }
+    if (sharedRecipe) {
+      return (
+        <div className="bg-white min-h-screen pb-24">
+          <div className="relative h-[40vh]">
+            <img src={sharedRecipe.image} alt={sharedRecipe.title} className="w-full h-full object-cover" />
+            <button onClick={goHomeFromShare} className="absolute top-8 left-6 p-2 bg-white/90 backdrop-blur-sm rounded-xl text-stone-800 shadow-md z-10">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
+            </button>
+          </div>
+          <div className="px-6 pt-8 space-y-6">
+            <h1 className="text-3xl font-bold text-stone-800 tracking-tight">{sharedRecipe.title}</h1>
+            {sharedRecipe.videoUrl && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-50 text-red-700 text-xs font-medium">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                From a video
+              </span>
+            )}
+            <p className="text-stone-500 leading-relaxed">{sharedRecipe.description}</p>
+            <div className="flex justify-between items-center py-4 border-y border-stone-100">
+              <div className="text-center"><p className="text-xs text-stone-400 font-bold uppercase mb-1">Time</p><p className="font-bold text-stone-800">{sharedRecipe.cookTime}</p></div>
+              <div className="text-center"><p className="text-xs text-stone-400 font-bold uppercase mb-1">Level</p><p className="font-bold text-stone-800">{sharedRecipe.difficulty}</p></div>
+              <div className="text-center"><p className="text-xs text-stone-400 font-bold uppercase mb-1">Serves</p><p className="font-bold text-stone-800">{sharedRecipe.servings}</p></div>
+            </div>
+            <div className="space-y-4">
+              <h2 className="text-xl font-bold text-stone-800">Ingredients</h2>
+              <ul className="space-y-3">
+                {sharedRecipe.ingredients.map((ing, i) => (
+                  <li key={i} className="flex items-center gap-3 text-stone-600">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />{ing}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="space-y-4">
+              <h2 className="text-xl font-bold text-stone-800">Instructions</h2>
+              <div className="space-y-6">
+                {sharedRecipe.steps.map((step, i) => (
+                  <div key={i} className="flex gap-4">
+                    <span className="flex-shrink-0 w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center text-sm font-bold text-stone-500">{i + 1}</span>
+                    <p className="text-stone-600 leading-relaxed pt-1">{step}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="pt-6 border-t border-stone-100">
+              {authUser ? (
+                <button type="button" onClick={handleSaveSharedRecipe} disabled={savingSharedRecipe} className="w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-60 flex items-center justify-center gap-2">
+                  {savingSharedRecipe ? (
+                    <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Saving…</>
+                  ) : (
+                    <>Save to my recipes</>
+                  )}
+                </button>
+              ) : (
+                <p className="text-stone-500 text-sm text-center">Sign in to save this recipe to your collection.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return renderLoading('Loading…');
+  }
+
+  if (!authUser) return null; // Should not reach here when SharedRecipe was handled above.
   if (isLoading) return renderLoading('Getting things ready…');
   if (loadError) {
     return (
@@ -628,12 +786,21 @@ const App: React.FC = () => {
             alt={selectedRecipe.title}
             className="w-full h-full object-cover"
           />
-          <button
-            onClick={() => { setShowShoppingListPrompt(false); window.history.back(); }}
-            className="absolute top-8 left-6 p-2 bg-white/90 backdrop-blur-sm rounded-xl text-stone-800 shadow-md z-10"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
-          </button>
+          <div className="absolute top-8 left-6 right-6 flex justify-between items-center z-10">
+            <button
+              onClick={() => { setShowShoppingListPrompt(false); window.history.back(); }}
+              className="p-2 bg-white/90 backdrop-blur-sm rounded-xl text-stone-800 shadow-md"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
+            </button>
+            <button
+              onClick={handleShareRecipe}
+              className="p-2 bg-white/90 backdrop-blur-sm rounded-xl text-stone-800 shadow-md hover:bg-white"
+              title="Share recipe"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+            </button>
+          </div>
         </div>
 
         <div className="px-6 pt-8 space-y-6">
@@ -760,6 +927,11 @@ const App: React.FC = () => {
           </div>
         )}
 
+        {shareToast && (
+          <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[60] max-w-md w-[calc(100%-2rem)] px-4 py-3 rounded-xl bg-stone-800 text-white text-sm font-medium text-center shadow-lg">
+            {shareToast}
+          </div>
+        )}
         {shoppingListToast && (
           <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[60] max-w-md w-[calc(100%-2rem)] px-4 py-3 rounded-xl bg-stone-800 text-white text-sm font-medium text-center shadow-lg">
             {shoppingListToast}

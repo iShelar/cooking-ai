@@ -211,4 +211,6 @@ export enum AppView {
   Inventory = 'inventory',
   Profile = 'profile',
   Settings = 'settings',
+  /** Viewing a recipe via share link (read-only; may be unauthenticated). */
+  SharedRecipe = 'shared-recipe',
 }
