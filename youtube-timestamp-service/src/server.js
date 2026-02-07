@@ -46,6 +46,17 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "GET" && req.url === "/guest-token") {
+    try {
+      const { getGuestToken } = await import("./guestToken.js");
+      const token = await getGuestToken();
+      send(res, 200, { token });
+    } catch (err) {
+      send(res, 500, { error: err.message || String(err) });
+    }
+    return;
+  }
+
   if (req.method === "POST" && req.url === "/timestamps") {
     try {
       const body = await parseJsonBody(req);
@@ -68,6 +79,7 @@ const server = createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Timestamp service running at http://localhost:${PORT}`);
-  console.log("  POST /timestamps  body: { url: \"https://www.youtube.com/...\" }");
+  console.log("  POST /timestamps   body: { url: \"https://www.youtube.com/...\" }");
+  console.log("  GET  /guest-token  returns { token } for shared guest sign-in");
   console.log("  GET  /health");
 });

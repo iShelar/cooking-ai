@@ -2,3 +2,6 @@ node_modules/
 .env
 data/*.json
 *.log
+# Firebase service account key (use GOOGLE_APPLICATION_CREDENTIALS; never commit)
+*-firebase-adminsdk-*.json
+serviceAccount*.json

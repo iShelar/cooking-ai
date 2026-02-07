@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { signIn, signUp } from '../services/authService';
+import { signIn, signUp, signInAsSharedGuest } from '../services/authService';
 
 interface LoginProps {
   onSuccess: () => void;
@@ -11,6 +11,7 @@ const Login: React.FC<LoginProps> = ({ onSuccess }) => {
   const [isSignUp, setIsSignUp] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [guestLoading, setGuestLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,6 +29,20 @@ const Login: React.FC<LoginProps> = ({ onSuccess }) => {
       setError(message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGuest = async () => {
+    setError('');
+    setGuestLoading(true);
+    try {
+      await signInAsSharedGuest();
+      onSuccess();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Guest sign-in failed';
+      setError(message);
+    } finally {
+      setGuestLoading(false);
     }
   };
 
@@ -83,7 +98,7 @@ const Login: React.FC<LoginProps> = ({ onSuccess }) => {
           )}
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || guestLoading}
             className="w-full bg-emerald-600 text-white font-bold py-3.5 rounded-2xl shadow-lg hover:bg-emerald-700 active:scale-[0.98] transition-all disabled:opacity-60 disabled:pointer-events-none"
           >
             {loading ? (
@@ -95,6 +110,22 @@ const Login: React.FC<LoginProps> = ({ onSuccess }) => {
               'Create account'
             ) : (
               'Sign in'
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleGuest}
+            disabled={loading || guestLoading}
+            className="w-full bg-stone-100 text-stone-700 font-semibold py-3 rounded-2xl border border-stone-200 hover:bg-stone-200 active:scale-[0.98] transition-all disabled:opacity-60 disabled:pointer-events-none"
+          >
+            {guestLoading ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="w-4 h-4 border-2 border-stone-500 border-t-transparent rounded-full animate-spin" />
+                Signing in...
+              </span>
+            ) : (
+              'Continue as guest'
             )}
           </button>
         </form>

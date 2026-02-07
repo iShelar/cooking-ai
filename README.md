@@ -22,6 +22,11 @@ View your app in AI Studio: https://ai.studio/apps/drive/1q4PwPz4BX_IElsBhDK1tst
 4. Run the app:
    `npm run dev`
 
+### Anonymous / guest login
+
+- **Continue as guest** on the login screen signs in with Firebase Anonymous Auth (no backend needed). Each device gets its own persistent UID; data is per device.
+- **Same ID for everyone (shared guest):** The **youtube-timestamp-service** backend exposes `GET /guest-token`, which returns `{ "token": "<customToken>" }`. Run that backend, then in the app’s `.env.local` set `VITE_GUEST_TOKEN_URL=http://localhost:3001/guest-token` (or your deployed backend URL). The backend needs Firebase Admin credentials: set `GOOGLE_APPLICATION_CREDENTIALS` to the path of your Firebase service account JSON (Firebase Console → Project settings → Service accounts → Generate new private key). Firestore rules must allow read/write for `users/guest/...` when `request.auth.uid == 'guest'`.
+
 ### Create recipe from YouTube (optional)
 
 To use **Create from YouTube** (turn a cooking video into a recipe with step timestamps):
