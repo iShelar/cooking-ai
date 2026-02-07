@@ -96,12 +96,13 @@ const App: React.FC = () => {
       setAuthUser(user);
       setAuthChecked(true);
       if (!user) {
+        const isShareLink = typeof window !== 'undefined' && window.location.pathname.startsWith('/share/');
         setRecipes([]);
         setSelectedRecipe(null);
         setScaledRecipe(null);
         setAppSettings(DEFAULT_APP_SETTINGS);
         setUserPreferences(null);
-        setCurrentView(AppView.Home);
+        if (!isShareLink) setCurrentView(AppView.Home);
         setLoadError(null);
         setSearchQuery('');
         setRecipeSort('recent');
@@ -542,12 +543,13 @@ const App: React.FC = () => {
   );
 
   if (!authChecked) return renderLoading('One sec…');
-  if (!authUser && currentView !== AppView.SharedRecipe) return (
+  // When not logged in, always show Login. Share link token is preserved in state; after login we show the shared recipe.
+  if (!authUser) return (
     <ErrorBoundary>
       <Login onSuccess={() => {}} />
     </ErrorBoundary>
   );
-  // Shared recipe view: can be shown without login (read-only; "Sign in to save" if not logged in).
+  // Shared recipe view (after login; token was set from URL on load).
   if (currentView === AppView.SharedRecipe) {
     if (sharedRecipeLoading) return renderLoading('Loading recipe…');
     if (sharedRecipeError) {
