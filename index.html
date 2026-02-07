@@ -9,8 +9,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>CookAI Assistant</title>
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180">
+  <link rel="icon" type="image/png" href="/blender.png">
+  <link rel="apple-touch-icon" href="/blender.png">
   <link rel="mask-icon" href="/favicon.svg" color="#059669">
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -20,14 +20,18 @@
       min-height: 100dvh;
       margin: 0;
     }
+    /* Safe areas: keep content and top buttons tappable below notch/status bar */
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #faf8f5;
+      padding-top: env(safe-area-inset-top);
+      padding-left: env(safe-area-inset-left);
+      padding-right: env(safe-area-inset-right);
+    }
     html {
       /* Prevent zoom on input focus (iOS) and double-tap zoom; keeps scrolling smooth */
       touch-action: manipulation;
       -webkit-text-size-adjust: 100%;
-    }
-    body {
-      font-family: 'Inter', sans-serif;
-      background-color: #faf8f5;
     }
     /* 16px minimum on form elements so iOS doesn't zoom when focusing (backup if viewport allows zoom) */
     input, select, textarea {

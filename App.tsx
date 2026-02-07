@@ -928,17 +928,17 @@ const App: React.FC = () => {
         )}
 
         {shareToast && (
-          <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[60] max-w-md w-[calc(100%-2rem)] px-4 py-3 rounded-xl bg-stone-800 text-white text-sm font-medium text-center shadow-lg">
+          <div className="fixed left-1/2 -translate-x-1/2 z-[60] max-w-md w-[calc(100%-2rem)] px-4 py-3 rounded-xl bg-stone-800 text-white text-sm font-medium text-center shadow-lg" style={{ bottom: 'calc(7rem + env(safe-area-inset-bottom))' }}>
             {shareToast}
           </div>
         )}
         {shoppingListToast && (
-          <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[60] max-w-md w-[calc(100%-2rem)] px-4 py-3 rounded-xl bg-stone-800 text-white text-sm font-medium text-center shadow-lg">
+          <div className="fixed left-1/2 -translate-x-1/2 z-[60] max-w-md w-[calc(100%-2rem)] px-4 py-3 rounded-xl bg-stone-800 text-white text-sm font-medium text-center shadow-lg" style={{ bottom: 'calc(7rem + env(safe-area-inset-bottom))' }}>
             {shoppingListToast}
           </div>
         )}
         {showShoppingListPrompt && (
-          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] max-w-md w-[calc(100%-2rem)] px-4 py-3 rounded-xl bg-stone-800 text-white shadow-lg flex items-center justify-between gap-3">
+          <div className="fixed left-1/2 -translate-x-1/2 z-[60] max-w-md w-[calc(100%-2rem)] px-4 py-3 rounded-xl bg-stone-800 text-white shadow-lg flex items-center justify-between gap-3" style={{ bottom: 'calc(6rem + env(safe-area-inset-bottom))' }}>
             <span className="text-sm font-medium">Want to see shopping list?</span>
             <div className="flex gap-2 shrink-0">
               <button
@@ -961,7 +961,7 @@ const App: React.FC = () => {
             </div>
           </div>
         )}
-        <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center pointer-events-none">
+        <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center pointer-events-none" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
           <div className="w-full max-w-md p-6 pt-20 pointer-events-none bg-gradient-to-t from-white via-white to-white/0">
             <button
               type="button"
@@ -1110,7 +1110,7 @@ const App: React.FC = () => {
 
       {BOTTOM_NAV_VIEWS.includes(currentView) && (
         <>
-          <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/80 backdrop-blur-md border-t border-stone-200 px-4 py-3 flex items-center justify-between gap-1 z-40">
+          <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/80 backdrop-blur-md border-t border-stone-200 px-4 py-3 flex items-center justify-between gap-1 z-40" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
             <button
               onClick={() => navigateTo(AppView.Home)}
               className={`p-2 rounded-xl transition-colors ${currentView === AppView.Home ? 'text-emerald-600 bg-emerald-50' : 'text-stone-400'}`}
@@ -1150,7 +1150,7 @@ const App: React.FC = () => {
           {/* Tutorial: step UI just above nav, white style to match bar. */}
           {highlightAddRecipeButton && !showRecipePrepMenu && (
             <>
-              <div className="fixed bottom-16 left-0 right-0 max-w-md mx-auto px-4 z-[41] flex items-end justify-between gap-1 pointer-events-none animate-in fade-in duration-300">
+              <div className="fixed left-0 right-0 max-w-md mx-auto px-4 z-[41] flex items-end justify-between gap-1 pointer-events-none animate-in fade-in duration-300" style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom))' }}>
                 <span className="flex-1 min-w-0" aria-hidden />
                 <span className="flex-1 min-w-0" aria-hidden />
                 <div className="flex flex-col items-center gap-0.5 flex-1 min-w-0" role="tooltip" aria-live="polite">
@@ -1176,7 +1176,7 @@ const App: React.FC = () => {
                 onClick={() => setShowRecipePrepMenu(false)}
                 aria-hidden="true"
               />
-              <div className="fixed bottom-20 left-1/2 -translate-x-1/2 max-w-md w-[calc(100%-2rem)] z-50 bg-white rounded-2xl shadow-xl border border-stone-100 overflow-hidden">
+              <div className="fixed left-1/2 -translate-x-1/2 max-w-md w-[calc(100%-2rem)] z-50 bg-white rounded-2xl shadow-xl border border-stone-100 overflow-hidden" style={{ bottom: 'calc(5rem + env(safe-area-inset-bottom))' }}>
                 <div className="p-2">
                   <p className="px-3 py-2 text-xs font-semibold text-stone-400 uppercase tracking-wider">Recipe prep</p>
                   <button

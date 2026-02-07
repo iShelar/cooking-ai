@@ -20,7 +20,7 @@ export default defineConfig(({ mode }) => {
           includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'mask-icon.svg'],
           manifest: {
             name: 'CookAI Assistant',
-            short_name: 'CookAI',
+            short_name: 'First Dish',
             description: 'AI-powered cooking assistant for recipes, meal planning, and kitchen help',
             theme_color: '#059669',
             background_color: '#faf8f5',
