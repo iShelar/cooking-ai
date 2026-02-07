@@ -48,13 +48,21 @@ export async function signInAsSharedGuest(): Promise<UserCredential> {
   return signInWithCustomToken(auth, token);
 }
 
-/** Clear all app-specific localStorage keys (cookai_*). Call on sign-out so the next user gets a clean slate. */
+/** Keys we keep on sign-out (preference and language / onboarding state for the device). */
+const KEEP_ON_SIGNOUT = new Set([
+  'cookai_dietary_survey_shown',
+  'cookai_voice_language_prompt_shown',
+  'cookai_recipe_onboarding_tip_shown',
+  'cookai_add_recipe_button_tutorial_shown',
+]);
+
+/** Clear app-specific localStorage (cookai_*) on sign-out, but keep preference and language/onboarding flags. */
 export function clearAppStorageOnSignOut(): void {
   if (typeof localStorage === 'undefined') return;
   const keys: string[] = [];
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    if (key?.startsWith('cookai_')) keys.push(key);
+    if (key?.startsWith('cookai_') && !KEEP_ON_SIGNOUT.has(key)) keys.push(key);
   }
   keys.forEach((k) => localStorage.removeItem(k));
 }
