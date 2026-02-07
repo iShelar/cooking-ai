@@ -184,7 +184,7 @@ If the description is vague (e.g. "something quick"), pick a popular, simple dis
   try {
     return JSON.parse(raw);
   } catch {
-    throw new Error("Could not generate recipe. Please try again.");
+    throw new Error("We couldn't create that recipe. Give it another try!");
   }
 };
 

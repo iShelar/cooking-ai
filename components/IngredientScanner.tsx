@@ -28,7 +28,7 @@ const IngredientScanner: React.FC<IngredientScannerProps> = ({ onClose, onSelect
       setStream(s);
       if (videoRef.current) videoRef.current.srcObject = s;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Camera access denied. Please allow camera in your browser settings.';
+      const message = err instanceof Error ? err.message : "We need camera access to scan. Turn it on in your device settings!";
       setError(message);
     }
   };
@@ -65,7 +65,7 @@ const IngredientScanner: React.FC<IngredientScannerProps> = ({ onClose, onSelect
       setStep('results');
       setError(null);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Scan failed. Check your connection and try again.';
+      const message = err instanceof Error ? err.message : "We couldn't scan that. Check your connection and try again!";
       setError(message);
       setStep('camera');
     } finally {

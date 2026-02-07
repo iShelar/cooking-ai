@@ -37,7 +37,7 @@ const Settings: React.FC<SettingsProps> = ({ userId, onBack, onSaved, onPreferen
       setPreferences(prefs ?? defaultPrefs);
       setAlternativesText((prefs?.alternatives ?? []).join(', '));
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load settings.';
+      const message = err instanceof Error ? err.message : "We couldn't load your settings. Try again?";
       setLoadError(message);
       setSettings({ ...DEFAULT_APP_SETTINGS });
     } finally {
@@ -59,7 +59,7 @@ const Settings: React.FC<SettingsProps> = ({ userId, onBack, onSaved, onPreferen
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to save settings.';
+      const message = err instanceof Error ? err.message : "Couldn't save. Try again?";
       setSaveError(message);
     } finally {
       setSaving(false);

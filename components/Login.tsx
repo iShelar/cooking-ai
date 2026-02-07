@@ -25,7 +25,7 @@ const Login: React.FC<LoginProps> = ({ onSuccess }) => {
       }
       onSuccess();
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Something went wrong';
+      const message = err instanceof Error ? err.message : "Oops! Something went wrong. Try again?";
       setError(message);
     } finally {
       setLoading(false);
@@ -39,7 +39,7 @@ const Login: React.FC<LoginProps> = ({ onSuccess }) => {
       await signInAsSharedGuest();
       onSuccess();
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Guest sign-in failed';
+      const message = err instanceof Error ? err.message : "Couldn't sign in as guest. Try again?";
       setError(message);
     } finally {
       setGuestLoading(false);

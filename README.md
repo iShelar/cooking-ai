@@ -29,13 +29,13 @@ View your app in AI Studio: https://ai.studio/apps/drive/1q4PwPz4BX_IElsBhDK1tst
 
 ### Create recipe from YouTube (optional)
 
-To use **Create from YouTube** (turn a cooking video into a recipe with step timestamps):
+To use **Create from YouTube** (turn a cooking video into a recipe you can follow step-by-step with the video):
 
-1. In another terminal, run the timestamp service:
+1. In another terminal, run the video service:
    ```bash
    cd youtube-timestamp-service && npm install && npm run server
    ```
-   It runs at `http://localhost:3001`. The app will call it when you click **Fetch** with a YouTube URL.
+   It runs at `http://localhost:3001`. The app will call it when you paste a YouTube link and create a recipe.
 
 2. Or run the CLI and paste the JSON:  
    `node src/index.js "https://www.youtube.com/watch?v=..."` then copy the generated file from `data/` and paste into the app’s **Create from YouTube** screen.

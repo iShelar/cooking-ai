@@ -36,7 +36,7 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
       const list = await getInventory(userId);
       setItems(list);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load inventory.');
+      setError(err instanceof Error ? err.message : "We couldn't load your pantry. Try again?");
     } finally {
       setLoading(false);
     }
@@ -78,7 +78,7 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
           return [...added, ...rest];
         });
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to add items.');
+        setError(err instanceof Error ? err.message : "Couldn't add those. Try again?");
       } finally {
         setIsProcessing(false);
       }
@@ -99,7 +99,7 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
         const list = await getShoppingList(userId);
         setShoppingList(list);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to add to shopping list.');
+        setError(err instanceof Error ? err.message : "Couldn't add to your list. Try again?");
       } finally {
         setIsProcessing(false);
       }
@@ -128,7 +128,7 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
         if (target === 'shopping') await addParsedItemsToShoppingList(parsed);
         else await addParsedItems(parsed);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to read photo.');
+        setError(err instanceof Error ? err.message : "We couldn't read that photo. Try another?");
       } finally {
         setIsProcessing(false);
       }
@@ -150,7 +150,7 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
         if (target === 'shopping') await addParsedItemsToShoppingList(parsed);
         else await addParsedItems(parsed);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to add from text.');
+        setError(err instanceof Error ? err.message : "Couldn't add from that text. Try again?");
       } finally {
         setIsProcessing(false);
       }
@@ -161,7 +161,7 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
   const handleVoiceToggle = useCallback((target: 'inventory' | 'shopping') => {
     const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognitionAPI) {
-      setError('Voice input is not supported in this browser.');
+      setError("Voice isn't supported here. Type or use a photo instead!");
       return;
     }
     if (isListening) {
@@ -181,7 +181,7 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
       }
     };
     recognition.onend = () => setIsListening(false);
-    recognition.onerror = () => setError('Voice recognition failed.');
+    recognition.onerror = () => setError("We didn't catch that. Try again?");
     recognitionRef.current = recognition;
     recognition.start();
     setIsListening(true);
@@ -193,7 +193,7 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
         await removeInventoryItem(userId, itemId);
         setItems((prev) => prev.filter((i) => i.id !== itemId));
       } catch {
-        setError('Failed to remove item.');
+        setError("Couldn't remove that. Try again?");
       }
     },
     [userId]
@@ -205,7 +205,7 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
         await removeShoppingListItem(userId, itemId);
         setShoppingList((prev) => prev.filter((i) => i.id !== itemId));
       } catch {
-        setError('Failed to remove item.');
+        setError("Couldn't remove that. Try again?");
       }
     },
     [userId]
@@ -219,7 +219,7 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
         setShoppingList((prev) => prev.filter((i) => i.id !== item.id));
         loadInventory();
       } catch {
-        setError('Failed to move to inventory.');
+        setError("Couldn't move that. Try again?");
       }
     },
     [userId, loadInventory]
@@ -242,7 +242,7 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
       setSelectedShoppingIds(new Set());
       loadInventory();
     } catch {
-      setError('Failed to move selected to inventory.');
+      setError("Couldn't move those. Try again?");
     } finally {
       setIsProcessing(false);
     }
@@ -294,7 +294,7 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
       setItems((prev) => prev.filter((i) => !selectedInventoryIds.has(i.id)));
       setSelectedInventoryIds(new Set());
     } catch {
-      setError('Failed to delete selected items.');
+      setError("Couldn't delete those. Try again?");
     } finally {
       setIsProcessing(false);
     }
@@ -312,7 +312,7 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
       setShoppingList((prev) => prev.filter((i) => !selectedShoppingIds.has(i.id)));
       setSelectedShoppingIds(new Set());
     } catch {
-      setError('Failed to delete selected items.');
+      setError("Couldn't delete those. Try again?");
     } finally {
       setIsProcessing(false);
     }

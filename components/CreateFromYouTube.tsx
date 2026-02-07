@@ -38,9 +38,9 @@ const CreateFromYouTube: React.FC<CreateFromYouTubeProps> = ({
   const getMessageForStep = (s: Step): string => {
     switch (s) {
       case "fetching":
-        return "Fetching your video and timestamps…";
+        return "Watching your video and building your recipe…";
       case "creating":
-        return "Turning it into a recipe with step-by-step links…";
+        return "Turning it into a recipe you can follow along with…";
       case "saving":
         return "Saving to your collection…";
       case "success":
@@ -53,7 +53,7 @@ const CreateFromYouTube: React.FC<CreateFromYouTubeProps> = ({
   const handleCreateRecipe = async () => {
     const u = url.trim();
     if (!u) {
-      setError("Please paste a YouTube link first.");
+      setError("Paste a YouTube link to get started!");
       setStep("error");
       return;
     }
@@ -98,7 +98,7 @@ const CreateFromYouTube: React.FC<CreateFromYouTubeProps> = ({
       const message =
         e instanceof Error
           ? e.message
-          : "Something went wrong. Check the link and try again. If you use a timestamp service, make sure it’s running.";
+          : "Something went wrong. Check the link and try again!";
       setError(message);
       setStep("error");
       setProgress(0);
@@ -123,7 +123,7 @@ const CreateFromYouTube: React.FC<CreateFromYouTubeProps> = ({
       </div>
 
       <p className="text-stone-500 text-sm mb-6">
-        Paste a YouTube cooking video link below. We’ll get timestamps and turn it into a recipe with step-by-step video links.
+        Paste a cooking video link below. We’ll turn it into a recipe and jump to each step in the video.
       </p>
 
       {(savedPreferences?.dietary?.length || savedPreferences?.allergies?.length) ? (

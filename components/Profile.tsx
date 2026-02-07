@@ -22,11 +22,11 @@ const Profile: React.FC<ProfileProps> = ({ user, onBack, onOpenSettings }) => {
     setError('');
     setSuccess('');
     if (newPassword !== confirmPassword) {
-      setError('New passwords do not match');
+      setError("Passwords don't match");
       return;
     }
     if (newPassword.length < 6) {
-      setError('New password must be at least 6 characters');
+      setError("Password needs to be at least 6 characters");
       return;
     }
     setLoading(true);
@@ -39,7 +39,7 @@ const Profile: React.FC<ProfileProps> = ({ user, onBack, onOpenSettings }) => {
       setConfirmPassword('');
       setShowPasswordForm(false);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Something went wrong';
+      const message = err instanceof Error ? err.message : "Oops! Something went wrong. Try again?";
       setError(message);
     } finally {
       setLoading(false);

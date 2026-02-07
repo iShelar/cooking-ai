@@ -51,7 +51,7 @@ const CreateFromChat: React.FC<CreateFromChatProps> = ({
   const handleCreateRecipe = async () => {
     const text = description.trim();
     if (!text) {
-      setError("Describe the dish or name the recipe you want to make.");
+      setError("Tell us the dish or recipe you want to make!");
       setStep("error");
       return;
     }
@@ -105,7 +105,7 @@ const CreateFromChat: React.FC<CreateFromChatProps> = ({
       }, 1200);
     } catch (e) {
       const message =
-        e instanceof Error ? e.message : "Something went wrong. Please try again.";
+        e instanceof Error ? e.message : "Oops! Something went wrong. Give it another try!";
       setError(message);
       setStep("error");
       setProgress(0);

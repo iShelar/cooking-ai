@@ -27,7 +27,7 @@ export async function fetchTimestampsForUrl(videoUrl: string): Promise<YouTubeTi
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error((err as { error?: string }).error || `Timestamp service error: ${res.status}`);
+    throw new Error((err as { error?: string }).error || "Video service isn't responding. Try again in a moment.");
   }
   const result = (await res.json()) as YouTubeTimestampResult;
   setCachedTimestampResult(result);
@@ -56,7 +56,7 @@ export function getCachedTimestampResult(): YouTubeTimestampResult | null {
 export function parseTimestampJson(jsonString: string): YouTubeTimestampResult {
   const data = JSON.parse(jsonString) as Record<string, unknown>;
   if (!data || typeof data.videoUrl !== "string" || !Array.isArray(data.segments)) {
-    throw new Error("Invalid timestamp JSON: need videoUrl and segments array.");
+    throw new Error("That paste didn't work. Try copying the full recipe again.");
   }
   const result: YouTubeTimestampResult = {
     videoUrl: data.videoUrl,

@@ -41,14 +41,26 @@ export async function signInAsSharedGuest(): Promise<UserCredential> {
     return signInAnonymously(auth);
   }
   const res = await fetch(url);
-  if (!res.ok) throw new Error('Could not get guest token');
+  if (!res.ok) throw new Error("We couldn't sign you in as guest. Try again?");
   const body = (await res.json()) as { token?: string };
   const token = body?.token;
-  if (!token || typeof token !== 'string') throw new Error('Invalid guest token response');
+  if (!token || typeof token !== 'string') throw new Error("Something went wrong. Try again?");
   return signInWithCustomToken(auth, token);
 }
 
+/** Clear all app-specific localStorage keys (cookai_*). Call on sign-out so the next user gets a clean slate. */
+export function clearAppStorageOnSignOut(): void {
+  if (typeof localStorage === 'undefined') return;
+  const keys: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key?.startsWith('cookai_')) keys.push(key);
+  }
+  keys.forEach((k) => localStorage.removeItem(k));
+}
+
 export function signOut(): Promise<void> {
+  clearAppStorageOnSignOut();
   return firebaseSignOut(auth);
 }
 
@@ -59,7 +71,7 @@ export function subscribeToAuthState(callback: (user: User | null) => void): () 
 /** Re-authenticate with current password (required before updating password). */
 export function reauthenticate(currentPassword: string): Promise<UserCredential> {
   const user = auth.currentUser;
-  if (!user || !user.email) throw new Error('You must be signed in to change your password.');
+  if (!user || !user.email) throw new Error("You need to be signed in to change your password.");
   const credential = EmailAuthProvider.credential(user.email, currentPassword);
   return reauthenticateWithCredential(user, credential);
 }
@@ -67,6 +79,6 @@ export function reauthenticate(currentPassword: string): Promise<UserCredential>
 /** Update password. Call reauthenticate(currentPassword) first. */
 export function updateUserPassword(newPassword: string): Promise<void> {
   const user = auth.currentUser;
-  if (!user) throw new Error('You must be signed in to change your password.');
+  if (!user) throw new Error("You need to be signed in to change your password.");
   return updatePassword(user, newPassword);
 }

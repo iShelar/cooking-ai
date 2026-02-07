@@ -75,6 +75,30 @@ const App: React.FC = () => {
     const unsubscribe = subscribeToAuthState((user) => {
       setAuthUser(user);
       setAuthChecked(true);
+      if (!user) {
+        setRecipes([]);
+        setSelectedRecipe(null);
+        setScaledRecipe(null);
+        setAppSettings(DEFAULT_APP_SETTINGS);
+        setUserPreferences(null);
+        setCurrentView(AppView.Home);
+        setLoadError(null);
+        setSearchQuery('');
+        setRecipeSort('recent');
+        setLanguagePromptOption(null);
+        setShoppingListToast(null);
+        setShowShoppingListPrompt(false);
+        setShoppingListAdding(false);
+        setShowDietarySurvey(false);
+        setShowDeleteRecipeConfirm(false);
+        setRecipeDeleting(false);
+        setShowRecipeOnboardingTip(false);
+        setHighlightAddRecipeButton(false);
+        languagePromptCheckedRef.current = false;
+        dietarySurveyCheckedRef.current = false;
+        recipeOnboardingCheckedRef.current = false;
+        addRecipeTutorialShownRef.current = false;
+      }
     });
     return () => unsubscribe();
   }, []);
@@ -94,7 +118,7 @@ const App: React.FC = () => {
       setAppSettings(dbSettings);
       setUserPreferences(dbPrefs);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load recipes and settings.";
+      const message = err instanceof Error ? err.message : "We couldn't load your recipes. Give it another try!";
       setLoadError(message);
     } finally {
       setIsLoading(false);
@@ -377,7 +401,7 @@ const App: React.FC = () => {
         setShowShoppingListPrompt(true);
       }
     } catch {
-      setShoppingListToast('Failed to add to shopping list.');
+      setShoppingListToast("Couldn't add to your list. Try again?");
       setTimeout(() => setShoppingListToast(null), 4000);
     } finally {
       setShoppingListAdding(false);
@@ -393,13 +417,13 @@ const App: React.FC = () => {
     </div>
   );
 
-  if (!authChecked) return renderLoading('Loading...');
+  if (!authChecked) return renderLoading('One sec…');
   if (!authUser) return (
     <ErrorBoundary>
       <Login onSuccess={() => {}} />
     </ErrorBoundary>
   );
-  if (isLoading) return renderLoading('Initializing...');
+  if (isLoading) return renderLoading('Getting things ready…');
   if (loadError) {
     return (
       <div className="max-w-md mx-auto min-h-screen bg-[#fcfcf9] flex flex-col items-center justify-center px-6">
@@ -408,7 +432,7 @@ const App: React.FC = () => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
         </div>
-        <h2 className="text-lg font-bold text-stone-800 text-center mb-2">Couldn't load your data</h2>
+        <h2 className="text-lg font-bold text-stone-800 text-center mb-2">Oops! We couldn't load your recipes</h2>
         <p className="text-stone-500 text-sm text-center mb-6">{loadError}</p>
         <button
           onClick={() => loadData()}
@@ -455,7 +479,7 @@ const App: React.FC = () => {
               <div className="mb-6 mx-auto max-w-sm animate-in fade-in slide-in-from-top-2 duration-300" role="status" aria-live="polite">
                 <div className="bg-emerald-600 text-white rounded-2xl px-4 py-4 shadow-lg">
                   <p className="text-sm font-medium text-left mb-3">
-                    Start here – paste a YouTube cooking video link to get a recipe with step-by-step timestamps.
+                    Start here – paste a cooking video link and we'll turn it into a recipe you can follow step-by-step with the video.
                   </p>
                   <button
                     type="button"
@@ -488,7 +512,7 @@ const App: React.FC = () => {
                 </span>
                 <div>
                   <span className="font-semibold text-stone-900 block">From YouTube</span>
-                  <span className="text-xs text-stone-500">Paste a video link → get a recipe with step timestamps</span>
+                  <span className="text-xs text-stone-500">Paste a video link → we'll turn it into a recipe and jump to each step in the video</span>
                 </div>
               </button>
               <button
@@ -995,7 +1019,7 @@ const App: React.FC = () => {
                     </div>
                     <div className="flex-1">
                       <p className="font-semibold text-stone-800">Create from YouTube</p>
-                      <p className="text-xs text-stone-500">Turn a video into a recipe with timestamps</p>
+                      <p className="text-xs text-stone-500">Turn a video into a recipe and follow along with the video</p>
                     </div>
                   </button>
                   <button
