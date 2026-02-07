@@ -825,7 +825,7 @@ const App: React.FC = () => {
   const renderRecipeDetail = () => {
     if (!selectedRecipe) return null;
     return (
-      <div className="bg-white min-h-screen pb-32 animate-in fade-in duration-300">
+      <div className="bg-white min-h-screen pb-44 animate-in fade-in duration-300">
         <div className="relative h-[40vh]">
           <img
             src={selectedRecipe.image}
@@ -922,15 +922,15 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          <div className="pt-6 border-t border-stone-100">
+          <div className="pt-6 pb-10 border-t border-stone-100 flex items-center justify-center">
             <button
               type="button"
               onClick={() => setShowDeleteRecipeConfirm(true)}
               disabled={recipeDeleting}
-              className="text-sm text-red-600 hover:text-red-700 disabled:opacity-60 flex items-center gap-2"
+              className="text-sm text-red-600 hover:text-red-700 disabled:opacity-60 inline-flex items-center justify-center gap-2 min-h-[2rem] py-1"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-              Delete recipe
+              <svg className="w-4 h-4 shrink-0 align-middle" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              <span className="align-middle">Delete recipe</span>
             </button>
           </div>
         </div>

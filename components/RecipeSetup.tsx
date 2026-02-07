@@ -40,29 +40,77 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
   const inputAudioContextRef = useRef<AudioContext | null>(null);
   const nextStartTimeRef = useRef<number>(0);
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+  const audioQueueRef = useRef<string[]>([]);
+  const audioProcessingRef = useRef(false);
   const sessionRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const inputSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const inputProcessorRef = useRef<ScriptProcessorNode | null>(null);
+
+  const closeSessionAndCleanup = useCallback(() => {
+    const session = sessionRef.current;
+    sessionRef.current = null;
+    if (session) {
+      try {
+        session.close();
+      } catch (_) {}
+    }
+    if (inputProcessorRef.current && inputSourceRef.current) {
+      try {
+        inputProcessorRef.current.disconnect();
+        inputSourceRef.current.disconnect();
+      } catch (_) {}
+      inputProcessorRef.current = null;
+      inputSourceRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+  }, []);
 
   // When leaving setup (e.g. cancel) without turning off the assistant, stop voice recording.
   useEffect(() => {
     return () => {
-      if (sessionRef.current) {
-        sessionRef.current.close();
-        sessionRef.current = null;
-      }
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-      }
+      closeSessionAndCleanup();
     };
-  }, []);
+  }, [closeSessionAndCleanup]);
 
   const stopAudio = useCallback(() => {
-    sourcesRef.current.forEach(source => source.stop());
+    audioQueueRef.current = [];
+    audioProcessingRef.current = false;
+    sourcesRef.current.forEach(source => {
+      try { source.stop(); } catch (_) {}
+    });
     sourcesRef.current.clear();
     nextStartTimeRef.current = 0;
     setIsAssistantSpeaking(false);
   }, []);
+
+  const processAudioQueue = useCallback(async () => {
+    if (audioProcessingRef.current || audioQueueRef.current.length === 0 || !audioContextRef.current) return;
+    const ctx = audioContextRef.current;
+    const raw = audioQueueRef.current.shift();
+    if (!raw) return;
+    audioProcessingRef.current = true;
+    try {
+      const buffer = await decodeAudioData(decode(raw), ctx, 24000, 1);
+      nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.playbackRate.value = appSettings.voiceSpeed;
+      source.connect(ctx.destination);
+      source.addEventListener('ended', () => {
+        sourcesRef.current.delete(source);
+        if (sourcesRef.current.size === 0) setIsAssistantSpeaking(false);
+      });
+      sourcesRef.current.add(source);
+      source.start(nextStartTimeRef.current);
+      nextStartTimeRef.current += buffer.duration / appSettings.voiceSpeed;
+    } catch (_) {}
+    audioProcessingRef.current = false;
+    processAudioQueue();
+  }, [appSettings.voiceSpeed]);
 
   const triggerUpdateRecipe = useCallback((servings: number, ingredients: string[]) => {
     setCurrentServings(servings);
@@ -106,20 +154,8 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
     const audioData = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
     if (audioData && audioContextRef.current) {
       setIsAssistantSpeaking(true);
-      const ctx = audioContextRef.current;
-      nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
-      const buffer = await decodeAudioData(decode(audioData), ctx, 24000, 1);
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-      source.playbackRate.value = appSettings.voiceSpeed;
-      source.connect(ctx.destination);
-      source.addEventListener('ended', () => { 
-        sourcesRef.current.delete(source);
-        if (sourcesRef.current.size === 0) setIsAssistantSpeaking(false);
-      });
-      source.start(nextStartTimeRef.current);
-      nextStartTimeRef.current += buffer.duration / appSettings.voiceSpeed;
-      sourcesRef.current.add(source);
+      audioQueueRef.current.push(audioData);
+      processAudioQueue();
     }
 
     if (message.toolCall) {
@@ -127,9 +163,13 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
         if (fc.name === 'updateRecipeQuantities') {
           triggerUpdateRecipe(fc.args.servings as number, fc.args.ingredients as string[]);
         }
-        sessionRef.current?.sendToolResponse({
-          functionResponses: { id: fc.id, name: fc.name, response: { result: "ok" } }
-        });
+        if (sessionRef.current) {
+          try {
+            sessionRef.current.sendToolResponse({
+              functionResponses: { id: fc.id, name: fc.name, response: { result: "ok" } }
+            });
+          } catch (_) {}
+        }
       }
     }
 
@@ -137,12 +177,11 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
       setAiText(message.serverContent.outputTranscription.text);
     }
     if (message.serverContent?.interrupted) stopAudio();
-  }, [appSettings.voiceSpeed, triggerUpdateRecipe, stopAudio]);
+  }, [triggerUpdateRecipe, stopAudio, processAudioQueue]);
 
   const toggleAssistant = async () => {
     if (isListening || isConnecting) {
-      sessionRef.current?.close();
-      streamRef.current?.getTracks().forEach(t => t.stop());
+      closeSessionAndCleanup();
       setIsListening(false);
       setIsConnecting(false);
       setInputVolume(0);
@@ -156,6 +195,8 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       if (!audioContextRef.current) audioContextRef.current = new AudioContext({ sampleRate: 24000, latencyHint: 'interactive' });
       if (!inputAudioContextRef.current) inputAudioContextRef.current = new AudioContext({ sampleRate: 16000, latencyHint: 'interactive' });
+      await audioContextRef.current.resume?.();
+      await inputAudioContextRef.current.resume?.();
 
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: { 
@@ -173,16 +214,20 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
           onopen: () => {
             setIsConnecting(false);
             setIsListening(true);
-            
-            const source = inputAudioContextRef.current!.createMediaStreamSource(stream);
-            const processor = inputAudioContextRef.current!.createScriptProcessor(2048, 1, 1);
-            
-            // Tuned for noisy setup phase
+            const inputCtx = inputAudioContextRef.current;
+            const currentSessionPromise = sessionPromise;
+            if (!inputCtx || !streamRef.current) return;
+            const source = inputCtx.createMediaStreamSource(streamRef.current);
+            const processor = inputCtx.createScriptProcessor(2048, 1, 1);
+            inputSourceRef.current = source;
+            inputProcessorRef.current = processor;
+
             const NOISE_GATE = 0.006;
             const HYSTERESIS = 12;
             let quietCount = 0;
 
             processor.onaudioprocess = (e) => {
+              if (!sessionRef.current) return;
               const input = e.inputBuffer.getChannelData(0);
               let sum = 0;
               for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
@@ -194,17 +239,23 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
                 const int16 = new Int16Array(input.length);
                 for (let i = 0; i < input.length; i++) int16[i] = input[i] * 32768;
                 const pcmBlob = { data: encode(new Uint8Array(int16.buffer)), mimeType: 'audio/pcm;rate=16000' };
-                sessionPromise.then(session => session.sendRealtimeInput({ media: pcmBlob }));
+                currentSessionPromise.then(s => {
+                  if (sessionRef.current !== s) return;
+                  try { s?.sendRealtimeInput?.({ media: pcmBlob }); } catch (_) {}
+                }).catch(() => {});
               } else if (quietCount < HYSTERESIS) {
                 quietCount++;
                 const int16 = new Int16Array(input.length);
                 for (let i = 0; i < input.length; i++) int16[i] = input[i] * 32768;
                 const pcmBlob = { data: encode(new Uint8Array(int16.buffer)), mimeType: 'audio/pcm;rate=16000' };
-                sessionPromise.then(session => session.sendRealtimeInput({ media: pcmBlob }));
+                currentSessionPromise.then(s => {
+                  if (sessionRef.current !== s) return;
+                  try { s?.sendRealtimeInput?.({ media: pcmBlob }); } catch (_) {}
+                }).catch(() => {});
               }
             };
             source.connect(processor);
-            processor.connect(inputAudioContextRef.current!.destination);
+            processor.connect(inputCtx.destination);
           },
           onmessage: handleLiveMessage,
           onerror: (e) => {
@@ -212,6 +263,7 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
             setIsConnecting(false);
           },
           onclose: () => {
+            sessionRef.current = null;
             setIsListening(false);
             setIsConnecting(false);
           },
