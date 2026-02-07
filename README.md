@@ -73,7 +73,7 @@ The app is set up as a PWA so users can install it on their phone or desktop (Ad
 <!-- 15. Image is not properly set (thumbnail or gen ai)~~ — When a recipe has no image 
 (or only a placeholder), the app generates a realistic image with Gemini, stores it 
 in Firebase Storage, and links it to the recipe in the DB. -->
-16. Share recipes
+<!-- 16. Share recipes -->
 <!-- 17. Whenever recipe start or if important it should ask for timer and heat level. so 
 user will know -> every time show the heat level. -->
 18. Few curated recipes - we will standardize

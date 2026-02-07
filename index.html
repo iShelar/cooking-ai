@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="description" content="AI-powered cooking assistant for recipes, meal planning, and kitchen help">
   <meta name="theme-color" content="#059669">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -20,9 +20,18 @@
       min-height: 100dvh;
       margin: 0;
     }
+    html {
+      /* Prevent zoom on input focus (iOS) and double-tap zoom; keeps scrolling smooth */
+      touch-action: manipulation;
+      -webkit-text-size-adjust: 100%;
+    }
     body {
       font-family: 'Inter', sans-serif;
       background-color: #faf8f5;
+    }
+    /* 16px minimum on form elements so iOS doesn't zoom when focusing (backup if viewport allows zoom) */
+    input, select, textarea {
+      font-size: max(16px, 1rem);
     }
     .scrollbar-none {
       -ms-overflow-style: none;
