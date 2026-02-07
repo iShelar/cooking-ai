@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { AppView, Recipe, AppSettings, DEFAULT_APP_SETTINGS, VOICE_LANGUAGE_OPTIONS, getBrowserVoiceLanguage, hasShownLanguagePrompt, setLanguagePromptShown, hasShownDietarySurvey, setDietarySurveyShown, hasShownRecipeOnboardingTip, setRecipeOnboardingTipShown } from './types';
+import { AppView, Recipe, AppSettings, DEFAULT_APP_SETTINGS, VOICE_LANGUAGE_OPTIONS, getBrowserVoiceLanguage, hasShownLanguagePrompt, setLanguagePromptShown, hasShownDietarySurvey, setDietarySurveyShown, hasShownRecipeOnboardingTip, setRecipeOnboardingTipShown, hasShownAddRecipeButtonTutorial, setAddRecipeButtonTutorialShown } from './types';
 import type { UserPreferences } from './types';
 import RecipeCard from './components/RecipeCard';
 import CookingMode from './components/CookingMode';
@@ -14,7 +14,7 @@ import Settings from './components/Settings';
 import Inventory from './components/Inventory';
 import DietarySurvey from './components/DietarySurvey';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { DEFAULT_RECIPE_IMAGE } from './constants';
+import { DEFAULT_RECIPE_IMAGE, MOCK_RECIPES } from './constants';
 import { getAllRecipes, getAppSettings, saveAppSettings, getPreferences, savePreferences, updateRecipeInDB, deleteRecipeInDB, getInventory, addShoppingListItems } from './services/dbService';
 import { getMissingIngredientsForRecipe } from './services/shoppingListService';
 import { subscribeToAuthState } from './services/authService';
@@ -67,6 +67,9 @@ const App: React.FC = () => {
   /** When true, show onboarding tooltip on empty recipe list (first-time only). */
   const [showRecipeOnboardingTip, setShowRecipeOnboardingTip] = useState(false);
   const recipeOnboardingCheckedRef = useRef(false);
+  /** When true, highlight the bottom bar + button and then open recipe prep menu (first-recipe tutorial). */
+  const [highlightAddRecipeButton, setHighlightAddRecipeButton] = useState(false);
+  const addRecipeTutorialShownRef = useRef(false);
 
   useEffect(() => {
     const unsubscribe = subscribeToAuthState((user) => {
@@ -189,6 +192,20 @@ const App: React.FC = () => {
     recipeOnboardingCheckedRef.current = true;
     if (recipes.length === 0 && !hasShownRecipeOnboardingTip()) setShowRecipeOnboardingTip(true);
   }, [isLoading, recipes.length]);
+
+  // First-recipe tutorial: when user lands on Home with exactly 1 recipe, show tooltip + highlight on + button (no auto-open).
+  useEffect(() => {
+    if (
+      currentView !== AppView.Home ||
+      recipes.length !== 1 ||
+      hasShownAddRecipeButtonTutorial() ||
+      addRecipeTutorialShownRef.current
+    )
+      return;
+    addRecipeTutorialShownRef.current = true;
+    const t = window.setTimeout(() => setHighlightAddRecipeButton(true), 2500);
+    return () => clearTimeout(t);
+  }, [currentView, recipes.length]);
 
   const handleUseDetectedLanguage = useCallback(() => {
     if (!languagePromptOption) return;
@@ -511,6 +528,34 @@ const App: React.FC = () => {
                   <span className="font-semibold text-stone-900 block">Scan ingredients</span>
                   <span className="text-xs text-stone-500">Photo or list → quick recipe from what you have</span>
                 </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  if (showRecipeOnboardingTip) {
+                    setRecipeOnboardingTipShown();
+                    setShowRecipeOnboardingTip(false);
+                  }
+                  const template = MOCK_RECIPES[0];
+                  if (!template) return;
+                  const sample: Recipe = {
+                    ...template,
+                    id: `sample-${Date.now()}`,
+                  };
+                  if (authUser) {
+                    try {
+                      await updateRecipeInDB(authUser.uid, sample);
+                    } catch {
+                      // continue with local state
+                    }
+                  }
+                  setRecipes((prev) => [...prev, sample]);
+                  replaceWith(AppView.RecipeDetail, sample);
+                }}
+                className="max-w-sm mx-auto w-full mt-2 py-3 rounded-xl border border-stone-200 bg-stone-50 text-stone-600 hover:bg-stone-100 hover:border-stone-300 text-sm font-medium transition-colors"
+              >
+                Try sample recipe
               </button>
             </div>
           </div>
@@ -885,9 +930,15 @@ const App: React.FC = () => {
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
             </button>
             <button
-              onClick={() => setShowRecipePrepMenu(true)}
-              className={`p-2 rounded-xl transition-colors ${showRecipePrepMenu ? 'text-emerald-600 bg-emerald-50' : 'text-stone-400'}`}
+              type="button"
+              onClick={() => {
+                setHighlightAddRecipeButton(false);
+                setAddRecipeButtonTutorialShown();
+                setShowRecipePrepMenu(true);
+              }}
+              className={`p-2 rounded-xl transition-all duration-300 ${showRecipePrepMenu ? 'text-emerald-600 bg-emerald-50' : 'text-stone-400'} ${highlightAddRecipeButton ? 'ring-4 ring-emerald-500 ring-offset-2 ring-offset-white shadow-lg shadow-emerald-500/30 animate-pulse bg-emerald-50/80 text-emerald-600' : ''}`}
               title="Recipe prep"
+              aria-label="Create recipe (From YouTube, chat, or scan)"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
             </button>
@@ -899,6 +950,28 @@ const App: React.FC = () => {
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
             </button>
           </nav>
+
+          {/* Tutorial: step UI just above nav, white style to match bar. */}
+          {highlightAddRecipeButton && !showRecipePrepMenu && (
+            <>
+              <div className="fixed bottom-16 left-0 right-0 max-w-md mx-auto px-4 z-[41] flex items-end justify-between gap-1 pointer-events-none animate-in fade-in duration-300">
+                <span className="flex-1 min-w-0" aria-hidden />
+                <span className="flex-1 min-w-0" aria-hidden />
+                <div className="flex flex-col items-center gap-0.5 flex-1 min-w-0" role="tooltip" aria-live="polite">
+                  <div className="flex items-center gap-2 rounded-full bg-white border border-stone-200 text-stone-800 px-3 py-1.5 shadow-md">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-stone-200 text-stone-700 text-xs font-bold">
+                      1
+                    </span>
+                    <span className="text-xs font-medium whitespace-nowrap">Tap here to create more recipes</span>
+                  </div>
+                  <svg className="w-4 h-4 text-stone-300 shrink-0" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+                    <path d="M7 10l5 6 5-6H7z" />
+                  </svg>
+                </div>
+                <span className="flex-1 min-w-0" aria-hidden />
+              </div>
+            </>
+          )}
 
           {showRecipePrepMenu && (
             <>

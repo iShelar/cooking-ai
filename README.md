@@ -50,8 +50,8 @@ The app is set up as a PWA so users can install it on their phone or desktop (Ad
 ## Features to be added:
 
 <!-- 1. ~~Dietary option~~ **Done** – At start, a one-time optional survey asks for dietary preferences and allergies (skippable). You can update them anytime in **Settings → Dietary & preferences**. When creating a recipe from **chat** or **YouTube**, you can choose to use saved preferences or skip for that recipe, and add extra alternatives (e.g. oat milk, gluten-free pasta) for that recipe only. -->
-5. Fix performance issue and also UI bugs - Not hearing the voice when noise is there 
-+ Should respond quickly.
+<!-- 5. Fix performance issue and also UI bugs - Not hearing the voice when noise is there 
++ Should respond quickly. -->
 <!-- 6. Search functionality -->
 <!-- 7. Instagram - Feature scope -->
 8. Voice command - fully automate
@@ -68,3 +68,4 @@ in Firebase Storage, and links it to the recipe in the DB. -->
 <!-- 17. Whenever recipe start or if important it should ask for timer and heat level. so 
 user will know -> every time show the heat level. -->
 18. Few curated recipes - we will standardize
+19. Feature - when we change the ingredients or use something else in a step, we will talk with agent if and that memory for that step we will store. Next time agent see that memory it will tell user you used something in last recipe. Also, same option will be in instruction option before prepare recipe screen. we should be able to add the preference or changes (like memory) for that specific step.

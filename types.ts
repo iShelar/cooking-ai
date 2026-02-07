@@ -162,6 +162,19 @@ export function setRecipeOnboardingTipShown(): void {
   } catch (_) {}
 }
 
+const ADD_RECIPE_BUTTON_TUTORIAL_KEY = 'cookai_add_recipe_button_tutorial_shown';
+
+export function hasShownAddRecipeButtonTutorial(): boolean {
+  if (typeof localStorage === 'undefined') return true;
+  return localStorage.getItem(ADD_RECIPE_BUTTON_TUTORIAL_KEY) === '1';
+}
+
+export function setAddRecipeButtonTutorialShown(): void {
+  try {
+    localStorage.setItem(ADD_RECIPE_BUTTON_TUTORIAL_KEY, '1');
+  } catch (_) {}
+}
+
 /** App-wide settings used to make the app adaptive (units, voice, defaults). */
 export interface AppSettings {
   /** Temperature and volume: metric (°C, ml) vs imperial (°F, cups). */
