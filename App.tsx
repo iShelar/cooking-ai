@@ -78,6 +78,8 @@ const App: React.FC = () => {
   const [sharedRecipeError, setSharedRecipeError] = useState<string | null>(null);
   const [shareToast, setShareToast] = useState<string | null>(null);
   const [savingSharedRecipe, setSavingSharedRecipe] = useState(false);
+  /** When set, show a modal with the share URL and Copy button (fallback when clipboard API is blocked on mobile/PWA). */
+  const [shareLinkUrl, setShareLinkUrl] = useState<string | null>(null);
 
   // On first load, if URL is /share/TOKEN, show shared recipe view.
   useEffect(() => {
@@ -427,14 +429,56 @@ const App: React.FC = () => {
     try {
       const token = await createShare(selectedRecipe, authUser.uid);
       const url = `${window.location.origin}/share/${token}`;
-      await navigator.clipboard.writeText(url);
-      setShareToast('Link copied! Share it with anyone.');
-      setTimeout(() => setShareToast(null), 3000);
+      setShareLinkUrl(url);
     } catch {
       setShareToast("Couldn't create share link. Try again?");
       setTimeout(() => setShareToast(null), 3000);
     }
   }, [authUser, selectedRecipe]);
+
+  const copyShareLinkFromModal = useCallback(async () => {
+    if (!shareLinkUrl) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareLinkUrl);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = shareLinkUrl;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      setShareLinkUrl(null);
+      setShareToast('Link copied!');
+      setTimeout(() => setShareToast(null), 3000);
+    } catch {
+      setShareToast("Couldn't copy. Try again?");
+    }
+  }, [shareLinkUrl]);
+
+  const shareViaNative = useCallback(async () => {
+    if (!shareLinkUrl || !selectedRecipe) return;
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: selectedRecipe.title,
+          text: selectedRecipe.title,
+          url: shareLinkUrl,
+        });
+        setShareLinkUrl(null);
+        setShareToast('Shared!');
+        setTimeout(() => setShareToast(null), 3000);
+      }
+    } catch (e) {
+      if ((e as Error)?.name !== 'AbortError') {
+        setShareToast("Couldn't open share. Use Copy link.");
+        setTimeout(() => setShareToast(null), 3000);
+      }
+    }
+  }, [shareLinkUrl, selectedRecipe]);
 
   const handleSaveSharedRecipe = useCallback(async () => {
     if (!authUser || !sharedRecipe) return;
@@ -921,6 +965,45 @@ const App: React.FC = () => {
                   ) : (
                     'Delete'
                   )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {shareLinkUrl && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40" role="dialog" aria-modal="true" aria-labelledby="share-link-title">
+            <div className="bg-white rounded-2xl shadow-xl border border-stone-200 max-w-sm w-full p-5 space-y-4">
+              <h2 id="share-link-title" className="text-base font-bold text-stone-800">Share recipe</h2>
+              <p className="text-xs text-stone-500">Send this link to anyone. They can open it and save the recipe.</p>
+              <div className="bg-stone-100 rounded-xl px-3 py-2.5 overflow-x-auto">
+                <p className="text-xs text-stone-700 break-all select-all">{shareLinkUrl}</p>
+              </div>
+              <div className="flex flex-col gap-2 pt-1">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={copyShareLinkFromModal}
+                    className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-semibold text-sm hover:bg-emerald-700"
+                  >
+                    Copy link
+                  </button>
+                  {typeof navigator !== 'undefined' && navigator.share && (
+                    <button
+                      type="button"
+                      onClick={shareViaNative}
+                      className="flex-1 py-3 rounded-xl bg-stone-800 text-white font-semibold text-sm hover:bg-stone-700"
+                    >
+                      Share
+                    </button>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShareLinkUrl(null)}
+                  className="w-full py-2.5 rounded-xl text-stone-500 font-medium text-sm hover:bg-stone-100"
+                >
+                  Done
                 </button>
               </div>
             </div>
