@@ -77,4 +77,4 @@ in Firebase Storage, and links it to the recipe in the DB. -->
 <!-- 17. Whenever recipe start or if important it should ask for timer and heat level. so 
 user will know -> every time show the heat level. -->
 18. Few curated recipes - we will standardize
-19. Feature - when we change the ingredients or use something else in a step, we will talk with agent if and that memory for that step we will store. Next time agent see that memory it will tell user you used something in last recipe. Also, same option will be in instruction option before prepare recipe screen. we should be able to add the preference or changes (like memory) for that specific step.
+19. Feature – When you change ingredients or use something different in a step, the agent will prompt you to save that change as a "memory" for that step. The next time you make a recipe, the agent will remind you of your previous changes. This option will also be available in the instructions before the prepare recipe screen, allowing you to add preferences or changes (as a memory) for specific steps.
