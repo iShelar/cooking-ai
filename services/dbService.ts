@@ -4,8 +4,9 @@ import { Recipe, UserPreferences, AppSettings, DEFAULT_APP_SETTINGS, InventoryIt
 import {
   getRecipesFromFirestore,
   updateRecipeInFirestore,
+  deleteRecipeFromFirestore,
 } from './recipeService';
-import { getInventoryIdsToSubtractForRecipe } from './shoppingListService';
+import { getInventoryUpdatesForRecipe } from './shoppingListService';
 
 /** Recipes: users/{userId}/recipes/{recipeId} */
 export const getAllRecipes = async (userId: string): Promise<Recipe[]> => {
@@ -14,6 +15,10 @@ export const getAllRecipes = async (userId: string): Promise<Recipe[]> => {
 
 export const updateRecipeInDB = async (userId: string, recipe: Recipe): Promise<void> => {
   await updateRecipeInFirestore(userId, recipe);
+};
+
+export const deleteRecipeInDB = async (userId: string, recipeId: string): Promise<void> => {
+  await deleteRecipeFromFirestore(userId, recipeId);
 };
 
 /** User preferences: users/{userId}/preferences (single doc) */
@@ -76,6 +81,37 @@ export const saveAppSettings = async (userId: string, settings: AppSettings): Pr
   await setDoc(ref, settings, { merge: true });
 };
 
+/** Normalize item name for matching (trim, lowercase). */
+function normalizeInventoryName(name: string): string {
+  return (name ?? '').trim().toLowerCase();
+}
+
+/**
+ * Merge two quantity strings when same unit (e.g. "2L" + "1L" → "3L", "250g" + "250g" → "500g").
+ * If units differ or unparseable, returns "q1, q2" or the single value.
+ */
+function mergeQuantityStrings(
+  q1: string | undefined,
+  q2: string | undefined
+): string | undefined {
+  if (!q1?.trim()) return q2?.trim() || undefined;
+  if (!q2?.trim()) return q1.trim() || undefined;
+  const parse = (q: string): { num: number; unit: string } | null => {
+    const m = q.trim().match(/^(\d+(?:\.\d+)?)\s*(\S*)$/);
+    if (!m) return null;
+    const num = parseFloat(m[1]);
+    const unit = (m[2] ?? '').toLowerCase();
+    return { num, unit };
+  };
+  const a = parse(q1);
+  const b = parse(q2);
+  if (a && b && a.unit === b.unit) {
+    const sum = a.num + b.num;
+    return a.unit ? `${sum}${a.unit}` : String(sum);
+  }
+  return `${q1.trim()}, ${q2.trim()}`;
+}
+
 /** Inventory: users/{userId}/inventory/{itemId} */
 export const getInventory = async (userId: string): Promise<InventoryItem[]> => {
   try {
@@ -97,12 +133,20 @@ export const getInventory = async (userId: string): Promise<InventoryItem[]> => 
 };
 
 export const addInventoryItem = async (userId: string, item: Omit<InventoryItem, 'id' | 'addedAt'>): Promise<InventoryItem> => {
+  const existing = await getInventory(userId);
+  const key = normalizeInventoryName(item.name);
+  const match = existing.find((i) => normalizeInventoryName(i.name) === key);
+  if (match) {
+    const mergedQty = mergeQuantityStrings(match.quantity, item.quantity);
+    await updateInventoryItem(userId, match.id, { quantity: mergedQty });
+    return { ...match, quantity: mergedQty };
+  }
   const colRef = collection(db, 'users', userId, 'inventory');
   const ref = doc(colRef);
   const full: InventoryItem = {
     id: ref.id,
-    name: item.name,
-    quantity: item.quantity,
+    name: item.name.trim(),
+    quantity: item.quantity?.trim() || undefined,
     addedAt: new Date().toISOString(),
   };
   await setDoc(ref, { name: full.name, quantity: full.quantity ?? null, addedAt: full.addedAt });
@@ -110,12 +154,24 @@ export const addInventoryItem = async (userId: string, item: Omit<InventoryItem,
 };
 
 export const addInventoryItems = async (userId: string, items: Omit<InventoryItem, 'id' | 'addedAt'>[]): Promise<InventoryItem[]> => {
-  const added: InventoryItem[] = [];
+  let current = await getInventory(userId);
+  const result: InventoryItem[] = [];
   for (const item of items) {
-    const full = await addInventoryItem(userId, item);
-    added.push(full);
+    const key = normalizeInventoryName(item.name);
+    const match = current.find((i) => normalizeInventoryName(i.name) === key);
+    if (match) {
+      const mergedQty = mergeQuantityStrings(match.quantity, item.quantity);
+      await updateInventoryItem(userId, match.id, { quantity: mergedQty });
+      const updated = { ...match, quantity: mergedQty };
+      result.push(updated);
+      current = current.map((i) => (i.id === match.id ? updated : i));
+    } else {
+      const full = await addInventoryItem(userId, { name: item.name, quantity: item.quantity });
+      result.push(full);
+      current = [...current, full];
+    }
   }
-  return added;
+  return result;
 };
 
 export const removeInventoryItem = async (userId: string, itemId: string): Promise<void> => {
@@ -129,14 +185,18 @@ export const updateInventoryItem = async (userId: string, itemId: string, update
 };
 
 /**
- * When the user has finished cooking the recipe, subtract used ingredients from inventory.
- * Matches each recipe ingredient to one inventory item by name and removes that item.
+ * When the user has finished cooking the recipe, subtract used ingredient quantities from inventory.
+ * Reduces each matched item's quantity by the amount used; removes the item if quantity goes to zero or below.
  */
 export const subtractRecipeIngredientsFromInventory = async (userId: string, recipe: Recipe): Promise<void> => {
   const inventory = await getInventory(userId);
-  const idsToRemove = getInventoryIdsToSubtractForRecipe(recipe, inventory);
-  for (const itemId of idsToRemove) {
-    await removeInventoryItem(userId, itemId);
+  const updates = getInventoryUpdatesForRecipe(recipe, inventory);
+  for (const { itemId, newQuantity } of updates) {
+    if (newQuantity === null) {
+      await removeInventoryItem(userId, itemId);
+    } else {
+      await updateInventoryItem(userId, itemId, { quantity: newQuantity });
+    }
   }
 };
 
@@ -162,16 +222,40 @@ export const getShoppingList = async (userId: string): Promise<ShoppingListItem[
   }
 };
 
+export const updateShoppingListItem = async (
+  userId: string,
+  itemId: string,
+  updates: { quantity?: string }
+): Promise<void> => {
+  const ref = doc(db, 'users', userId, 'shoppingList', itemId);
+  await updateDoc(ref, updates as Record<string, unknown>);
+};
+
 export const addShoppingListItem = async (
   userId: string,
   item: Omit<ShoppingListItem, 'id' | 'addedAt'>
 ): Promise<ShoppingListItem> => {
+  const existing = await getShoppingList(userId);
+  const key = normalizeInventoryName(item.name);
+  const matches = existing.filter((i) => normalizeInventoryName(i.name) === key);
+  if (matches.length > 0) {
+    const keep = matches[0];
+    let mergedQty = mergeQuantityStrings(keep.quantity, item.quantity);
+    for (let i = 1; i < matches.length; i++) {
+      mergedQty = mergeQuantityStrings(mergedQty, matches[i].quantity);
+    }
+    await updateShoppingListItem(userId, keep.id, { quantity: mergedQty });
+    for (let i = 1; i < matches.length; i++) {
+      await removeShoppingListItem(userId, matches[i].id);
+    }
+    return { ...keep, quantity: mergedQty };
+  }
   const colRef = collection(db, 'users', userId, 'shoppingList');
   const ref = doc(colRef);
   const full: ShoppingListItem = {
     id: ref.id,
-    name: item.name,
-    quantity: item.quantity,
+    name: (item.name ?? '').trim(),
+    quantity: item.quantity?.trim() || undefined,
     addedAt: new Date().toISOString(),
     sourceRecipeId: item.sourceRecipeId,
     sourceRecipeTitle: item.sourceRecipeTitle,
@@ -190,12 +274,31 @@ export const addShoppingListItems = async (
   userId: string,
   items: Omit<ShoppingListItem, 'id' | 'addedAt'>[]
 ): Promise<ShoppingListItem[]> => {
-  const added: ShoppingListItem[] = [];
+  let current = await getShoppingList(userId);
+  const result: ShoppingListItem[] = [];
   for (const item of items) {
-    const full = await addShoppingListItem(userId, item);
-    added.push(full);
+    const key = normalizeInventoryName(item.name);
+    const matches = current.filter((i) => normalizeInventoryName(i.name) === key);
+    if (matches.length > 0) {
+      const keep = matches[0];
+      let mergedQty = mergeQuantityStrings(keep.quantity, item.quantity);
+      for (let i = 1; i < matches.length; i++) {
+        mergedQty = mergeQuantityStrings(mergedQty, matches[i].quantity);
+      }
+      await updateShoppingListItem(userId, keep.id, { quantity: mergedQty });
+      for (let i = 1; i < matches.length; i++) {
+        await removeShoppingListItem(userId, matches[i].id);
+      }
+      const updated = { ...keep, quantity: mergedQty };
+      result.push(updated);
+      current = current.filter((i) => normalizeInventoryName(i.name) !== key).concat([updated]);
+    } else {
+      const full = await addShoppingListItem(userId, item);
+      result.push(full);
+      current = [...current, full];
+    }
   }
-  return added;
+  return result;
 };
 
 export const removeShoppingListItem = async (userId: string, itemId: string): Promise<void> => {

@@ -19,6 +19,21 @@ function parseIngredientLine(line: string): { name: string; quantity?: string } 
   return { name: s };
 }
 
+/** Parse quantity string to number (e.g. "8" -> 8, "3 eggs" -> 3). Default 1 if missing or unparseable. */
+function parseQuantityToNumber(q: string | undefined): number {
+  if (!q?.trim()) return 1;
+  const m = q.trim().match(/^(\d+(?:\.\d+)?)/);
+  return m ? Math.max(0, parseFloat(m[1])) : 1;
+}
+
+/** Parse quantity string to { num, unit } for preserving unit when updating (e.g. "8 eggs" -> { num: 8, unit: "eggs" }). */
+function parseQuantityWithUnit(q: string | undefined): { num: number; unit: string } {
+  if (!q?.trim()) return { num: 1, unit: '' };
+  const m = q.trim().match(/^(\d+(?:\.\d+)?)\s*(\S*)$/);
+  if (m) return { num: Math.max(0, parseFloat(m[1])), unit: (m[2] ?? '').trim() };
+  return { num: 1, unit: '' };
+}
+
 /** Check if inventory has an item that likely matches this ingredient (by name). */
 function isInInventory(ingredient: string, inventory: InventoryItem[]): boolean {
   const core = coreName(ingredient);
@@ -41,9 +56,54 @@ export function getMissingIngredientsForRecipe(
     .map((ing) => parseIngredientLine((ing as string).trim()));
 }
 
+function nameMatches(ingCore: string, inv: InventoryItem): boolean {
+  const invCore = coreName(inv.name);
+  return invCore === ingCore ||
+    inv.name.trim().toLowerCase().includes(ingCore) ||
+    ingCore.includes(inv.name.trim().toLowerCase());
+}
+
+/**
+ * Returns per-item updates when the user has finished the recipe: subtract used amounts by quantity.
+ * Each recipe ingredient is matched to one inventory item by name; same ingredient lines subtract from the same item.
+ * Returns { itemId, newQuantity } where newQuantity is null (remove item) or the new quantity string.
+ */
+export function getInventoryUpdatesForRecipe(
+  recipe: Recipe,
+  inventory: InventoryItem[]
+): { itemId: string; newQuantity: string | null }[] {
+  const ingredients = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
+  const coreToInvId: Record<string, string> = {};
+  const remaining: Record<string, { current: number; unit: string }> = {};
+
+  for (const line of ingredients) {
+    const s = typeof line === 'string' ? line.trim() : '';
+    if (!s) continue;
+    const parsed = parseIngredientLine(s);
+    const ingCore = coreName(parsed.name);
+    if (!ingCore) continue;
+    const invItem = inventory.find((inv) => nameMatches(ingCore, inv));
+    if (!invItem) continue;
+    const invId = invItem.id;
+    if (!coreToInvId[ingCore]) coreToInvId[ingCore] = invId;
+    const assignedId = coreToInvId[ingCore];
+    if (remaining[assignedId] === undefined) {
+      const { num, unit } = parseQuantityWithUnit(invItem.quantity);
+      remaining[assignedId] = { current: num, unit };
+    }
+    const useAmount = parseQuantityToNumber(parsed.quantity);
+    remaining[assignedId].current -= useAmount;
+  }
+
+  return Object.entries(remaining).map(([itemId, { current, unit }]) => ({
+    itemId,
+    newQuantity: current <= 0 ? null : (unit ? `${current} ${unit}`.trim() : String(current)),
+  }));
+}
+
 /**
  * Returns inventory item IDs to remove when the user has finished the recipe (ingredients used).
- * Each recipe ingredient is matched to one inventory item by name (core name); each inventory item at most once.
+ * @deprecated Use getInventoryUpdatesForRecipe for quantity-based subtraction instead.
  */
 export function getInventoryIdsToSubtractForRecipe(
   recipe: Recipe,
@@ -59,7 +119,7 @@ export function getInventoryIdsToSubtractForRecipe(
     const ingCore = coreName(parsed.name);
     if (!ingCore) continue;
     const invItem = inventory.find(
-      (inv) => !usedIds.has(inv.id) && (coreName(inv.name) === ingCore || inv.name.trim().toLowerCase().includes(ingCore) || ingCore.includes(inv.name.trim().toLowerCase()))
+      (inv) => !usedIds.has(inv.id) && nameMatches(ingCore, inv)
     );
     if (invItem) {
       usedIds.add(invItem.id);

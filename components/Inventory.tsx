@@ -19,7 +19,15 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
   const [chatInput, setChatInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [selectedInventoryIds, setSelectedInventoryIds] = useState<Set<string>>(new Set());
+  const [selectedShoppingIds, setSelectedShoppingIds] = useState<Set<string>>(new Set());
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+
+  const clearSelectionOnTabChange = useCallback((tab: Tab) => {
+    setActiveTab(tab);
+    setSelectedInventoryIds(new Set());
+    setSelectedShoppingIds(new Set());
+  }, []);
 
   const loadInventory = useCallback(async () => {
     setError(null);
@@ -64,7 +72,11 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
           userId,
           parsed.map((p) => ({ name: p.name.trim(), quantity: p.quantity?.trim() || undefined }))
         );
-        setItems((prev) => [...added, ...prev]);
+        setItems((prev) => {
+          const updatedIds = new Set(added.map((a) => a.id));
+          const rest = prev.filter((i) => !updatedIds.has(i.id));
+          return [...added, ...rest];
+        });
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to add items.');
       } finally {
@@ -80,11 +92,12 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
       setIsProcessing(true);
       setError(null);
       try {
-        const added = await addShoppingListItems(
+        await addShoppingListItems(
           userId,
           parsed.map((p) => ({ name: p.name.trim(), quantity: p.quantity?.trim() || undefined }))
         );
-        setShoppingList((prev) => [...added, ...prev]);
+        const list = await getShoppingList(userId);
+        setShoppingList(list);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to add to shopping list.');
       } finally {
@@ -212,26 +225,98 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
     [userId, loadInventory]
   );
 
-  const handleMoveAllToInventory = useCallback(async () => {
-    if (shoppingList.length === 0) return;
+  const handleMoveSelectedToInventory = useCallback(async () => {
+    const selected = shoppingList.filter((i) => selectedShoppingIds.has(i.id));
+    if (selected.length === 0) return;
     setIsProcessing(true);
     setError(null);
     try {
       await addInventoryItems(
         userId,
-        shoppingList.map((i) => ({ name: i.name, quantity: i.quantity }))
+        selected.map((i) => ({ name: i.name, quantity: i.quantity }))
       );
-      for (const item of shoppingList) {
+      for (const item of selected) {
         await removeShoppingListItem(userId, item.id);
       }
-      setShoppingList([]);
+      setShoppingList((prev) => prev.filter((i) => !selectedShoppingIds.has(i.id)));
+      setSelectedShoppingIds(new Set());
       loadInventory();
     } catch {
-      setError('Failed to move all to inventory.');
+      setError('Failed to move selected to inventory.');
     } finally {
       setIsProcessing(false);
     }
-  }, [userId, shoppingList, loadInventory]);
+  }, [userId, shoppingList, selectedShoppingIds, loadInventory]);
+
+  const toggleInventorySelection = useCallback((id: string) => {
+    setSelectedInventoryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleShoppingSelection = useCallback((id: string) => {
+    setSelectedShoppingIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const selectAllInventory = useCallback(() => {
+    setSelectedInventoryIds(new Set(items.map((i) => i.id)));
+  }, [items]);
+
+  const selectAllShopping = useCallback(() => {
+    setSelectedShoppingIds(new Set(shoppingList.map((i) => i.id)));
+  }, [shoppingList]);
+
+  const deselectAllInventory = useCallback(() => {
+    setSelectedInventoryIds(new Set());
+  }, []);
+
+  const deselectAllShopping = useCallback(() => {
+    setSelectedShoppingIds(new Set());
+  }, []);
+
+  const handleDeleteSelectedInventory = useCallback(async () => {
+    const ids: string[] = Array.from(selectedInventoryIds);
+    if (ids.length === 0) return;
+    setIsProcessing(true);
+    setError(null);
+    try {
+      for (const id of ids) {
+        await removeInventoryItem(userId, id);
+      }
+      setItems((prev) => prev.filter((i) => !selectedInventoryIds.has(i.id)));
+      setSelectedInventoryIds(new Set());
+    } catch {
+      setError('Failed to delete selected items.');
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [userId, selectedInventoryIds]);
+
+  const handleDeleteSelectedShopping = useCallback(async () => {
+    const ids: string[] = Array.from(selectedShoppingIds);
+    if (ids.length === 0) return;
+    setIsProcessing(true);
+    setError(null);
+    try {
+      for (const id of ids) {
+        await removeShoppingListItem(userId, id);
+      }
+      setShoppingList((prev) => prev.filter((i) => !selectedShoppingIds.has(i.id)));
+      setSelectedShoppingIds(new Set());
+    } catch {
+      setError('Failed to delete selected items.');
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [userId, selectedShoppingIds]);
 
   return (
     <div className="min-h-screen bg-[#faf8f5] pb-24">
@@ -241,14 +326,14 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
         <div className="flex gap-2 mt-4">
           <button
             type="button"
-            onClick={() => setActiveTab('inventory')}
+            onClick={() => clearSelectionOnTabChange('inventory')}
             className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'inventory' ? 'bg-stone-900 text-white' : 'bg-stone-100 text-stone-600'}`}
           >
             Inventory
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab('shopping')}
+            onClick={() => clearSelectionOnTabChange('shopping')}
             className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === 'shopping' ? 'bg-stone-900 text-white' : 'bg-stone-100 text-stone-600'}`}
           >
             Shopping list
@@ -319,19 +404,39 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
             </div>
           )}
           <div className="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-stone-100">
+            <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-stone-100 flex-wrap">
               <p className="text-xs font-semibold text-stone-400 uppercase tracking-wider">
                 Shopping list
               </p>
               {shoppingList.length > 0 && (
-                <button
-                  type="button"
-                  onClick={handleMoveAllToInventory}
-                  disabled={isProcessing}
-                  className="text-xs font-medium text-emerald-600 hover:text-emerald-700 disabled:opacity-50"
-                >
-                  Move all to inventory
-                </button>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={handleMoveSelectedToInventory}
+                    disabled={isProcessing || selectedShoppingIds.size === 0}
+                    className="text-xs font-medium text-emerald-600 hover:text-emerald-700 disabled:text-stone-400 disabled:cursor-not-allowed disabled:hover:text-stone-400"
+                  >
+                    Add to inventory ({selectedShoppingIds.size})
+                  </button>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={shoppingList.length > 0 && selectedShoppingIds.size === shoppingList.length}
+                      onChange={(e) => (e.target.checked ? selectAllShopping() : deselectAllShopping())}
+                      className="rounded border-stone-300 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <span className="text-xs font-medium text-stone-600">Select all</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleDeleteSelectedShopping}
+                    disabled={isProcessing || selectedShoppingIds.size === 0}
+                    className="text-xs font-medium text-red-600 hover:text-red-700 disabled:text-stone-400 disabled:cursor-not-allowed disabled:hover:text-stone-400 flex items-center gap-1"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    Delete ({selectedShoppingIds.size})
+                  </button>
+                </div>
               )}
             </div>
             {shoppingListLoading ? (
@@ -343,15 +448,31 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
             ) : (
               <ul className="divide-y divide-stone-100">
                 {shoppingList.map((item) => (
-                  <li key={item.id} className="px-4 py-3 flex items-center justify-between gap-3">
-                    <div>
+                  <li
+                    key={item.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => toggleShoppingSelection(item.id)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleShoppingSelection(item.id); } }}
+                    className={`px-4 py-3 flex items-center gap-3 cursor-pointer select-none ${selectedShoppingIds.has(item.id) ? 'bg-emerald-50/60' : ''} hover:bg-stone-50/80`}
+                    aria-pressed={selectedShoppingIds.has(item.id)}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedShoppingIds.has(item.id)}
+                      onChange={() => toggleShoppingSelection(item.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="rounded border-stone-300 text-emerald-600 focus:ring-emerald-500 shrink-0"
+                      aria-label={`Select ${item.name}`}
+                    />
+                    <div className="flex-1 min-w-0 pointer-events-none">
                       <span className="font-medium text-stone-800">{item.name}</span>
                       {item.quantity && <span className="text-stone-500 text-sm ml-2">({item.quantity})</span>}
                       {item.sourceRecipeTitle && (
                         <p className="text-stone-400 text-xs mt-0.5">From: {item.sourceRecipeTitle}</p>
                       )}
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                       <button
                         type="button"
                         onClick={() => handleMoveToInventory(item)}
@@ -432,9 +553,33 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
         )}
 
         <div className="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
-          <p className="text-xs font-semibold text-stone-400 uppercase tracking-wider px-4 py-3 border-b border-stone-100">
-            Your list
-          </p>
+          <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-stone-100">
+            <p className="text-xs font-semibold text-stone-400 uppercase tracking-wider">
+              Your list
+            </p>
+            {items.length > 0 && (
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={items.length > 0 && selectedInventoryIds.size === items.length}
+                    onChange={(e) => (e.target.checked ? selectAllInventory() : deselectAllInventory())}
+                    className="rounded border-stone-300 text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <span className="text-xs font-medium text-stone-600">Select all</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={handleDeleteSelectedInventory}
+                  disabled={isProcessing || selectedInventoryIds.size === 0}
+                  className="text-xs font-medium text-red-600 hover:text-red-700 disabled:text-stone-400 disabled:cursor-not-allowed disabled:hover:text-stone-400 flex items-center gap-1"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                  Delete ({selectedInventoryIds.size})
+                </button>
+              </div>
+            )}
+          </div>
           {loading ? (
             <div className="p-8 flex justify-center">
               <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
@@ -444,19 +589,37 @@ const Inventory: React.FC<InventoryProps> = ({ userId }) => {
           ) : (
             <ul className="divide-y divide-stone-100">
               {items.map((item) => (
-                <li key={item.id} className="px-4 py-3 flex items-center justify-between gap-3">
-                  <div>
+                <li
+                  key={item.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => toggleInventorySelection(item.id)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleInventorySelection(item.id); } }}
+                  className={`px-4 py-3 flex items-center gap-3 cursor-pointer select-none ${selectedInventoryIds.has(item.id) ? 'bg-emerald-50/60' : ''} hover:bg-stone-50/80`}
+                  aria-pressed={selectedInventoryIds.has(item.id)}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedInventoryIds.has(item.id)}
+                    onChange={() => toggleInventorySelection(item.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="rounded border-stone-300 text-emerald-600 focus:ring-emerald-500 shrink-0"
+                    aria-label={`Select ${item.name}`}
+                  />
+                  <div className="flex-1 min-w-0 pointer-events-none">
                     <span className="font-medium text-stone-800">{item.name}</span>
                     {item.quantity && <span className="text-stone-500 text-sm ml-2">({item.quantity})</span>}
                   </div>
+                  <span onClick={(e) => e.stopPropagation()}>
                   <button
                     type="button"
                     onClick={() => handleRemove(item.id)}
-                    className="p-2 rounded-lg text-stone-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                    className="p-2 rounded-lg text-stone-400 hover:bg-red-50 hover:text-red-600 transition-colors shrink-0"
                     aria-label={`Remove ${item.name}`}
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                   </button>
+                  </span>
                 </li>
               ))}
             </ul>

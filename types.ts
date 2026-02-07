@@ -149,6 +149,19 @@ export function setLanguagePromptShown(): void {
   } catch (_) {}
 }
 
+const RECIPE_ONBOARDING_TIP_KEY = 'cookai_recipe_onboarding_tip_shown';
+
+export function hasShownRecipeOnboardingTip(): boolean {
+  if (typeof localStorage === 'undefined') return true;
+  return localStorage.getItem(RECIPE_ONBOARDING_TIP_KEY) === '1';
+}
+
+export function setRecipeOnboardingTipShown(): void {
+  try {
+    localStorage.setItem(RECIPE_ONBOARDING_TIP_KEY, '1');
+  } catch (_) {}
+}
+
 /** App-wide settings used to make the app adaptive (units, voice, defaults). */
 export interface AppSettings {
   /** Temperature and volume: metric (°C, ml) vs imperial (°F, cups). */

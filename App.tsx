@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { AppView, Recipe, AppSettings, DEFAULT_APP_SETTINGS, VOICE_LANGUAGE_OPTIONS, getBrowserVoiceLanguage, hasShownLanguagePrompt, setLanguagePromptShown, hasShownDietarySurvey, setDietarySurveyShown } from './types';
+import { AppView, Recipe, AppSettings, DEFAULT_APP_SETTINGS, VOICE_LANGUAGE_OPTIONS, getBrowserVoiceLanguage, hasShownLanguagePrompt, setLanguagePromptShown, hasShownDietarySurvey, setDietarySurveyShown, hasShownRecipeOnboardingTip, setRecipeOnboardingTipShown } from './types';
 import type { UserPreferences } from './types';
 import RecipeCard from './components/RecipeCard';
 import CookingMode from './components/CookingMode';
@@ -15,7 +15,7 @@ import Inventory from './components/Inventory';
 import DietarySurvey from './components/DietarySurvey';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { DEFAULT_RECIPE_IMAGE } from './constants';
-import { getAllRecipes, getAppSettings, saveAppSettings, getPreferences, savePreferences, updateRecipeInDB, getInventory, addShoppingListItems } from './services/dbService';
+import { getAllRecipes, getAppSettings, saveAppSettings, getPreferences, savePreferences, updateRecipeInDB, deleteRecipeInDB, getInventory, addShoppingListItems } from './services/dbService';
 import { getMissingIngredientsForRecipe } from './services/shoppingListService';
 import { subscribeToAuthState } from './services/authService';
 import type { User } from 'firebase/auth';
@@ -61,6 +61,12 @@ const App: React.FC = () => {
   /** Show one-time dietary survey (after language prompt if that was shown). */
   const [showDietarySurvey, setShowDietarySurvey] = useState(false);
   const dietarySurveyCheckedRef = useRef(false);
+  /** When true, show "Delete recipe?" confirmation dialog. */
+  const [showDeleteRecipeConfirm, setShowDeleteRecipeConfirm] = useState(false);
+  const [recipeDeleting, setRecipeDeleting] = useState(false);
+  /** When true, show onboarding tooltip on empty recipe list (first-time only). */
+  const [showRecipeOnboardingTip, setShowRecipeOnboardingTip] = useState(false);
+  const recipeOnboardingCheckedRef = useRef(false);
 
   useEffect(() => {
     const unsubscribe = subscribeToAuthState((user) => {
@@ -116,6 +122,22 @@ const App: React.FC = () => {
     }
   }, []);
 
+  /** Like navigateTo but replaces current history entry (e.g. after creating a recipe so back goes to first screen). */
+  const replaceWith = useCallback((view: AppView, recipe?: Recipe | null) => {
+    setCurrentView(view);
+    if (recipe) {
+      setSelectedRecipe(recipe);
+      setScaledRecipe(recipe);
+    } else {
+      setSelectedRecipe(null);
+      setScaledRecipe(null);
+    }
+    const state: HistoryState = { view, recipeId: recipe?.id };
+    if (typeof window !== 'undefined' && window.history) {
+      window.history.replaceState(state, '', window.location.pathname);
+    }
+  }, []);
+
   useEffect(() => {
     if (typeof window === 'undefined' || !window.history) return;
     if (!window.history.state?.view) {
@@ -160,6 +182,13 @@ const App: React.FC = () => {
     dietarySurveyCheckedRef.current = true;
     setShowDietarySurvey(true);
   }, [authUser, isLoading, languagePromptOption]);
+
+  // One-time onboarding tooltip when recipe list is empty (after data has loaded).
+  useEffect(() => {
+    if (recipeOnboardingCheckedRef.current || isLoading) return;
+    recipeOnboardingCheckedRef.current = true;
+    if (recipes.length === 0 && !hasShownRecipeOnboardingTip()) setShowRecipeOnboardingTip(true);
+  }, [isLoading, recipes.length]);
 
   const handleUseDetectedLanguage = useCallback(() => {
     if (!languagePromptOption) return;
@@ -276,8 +305,39 @@ const App: React.FC = () => {
       ingredients: ['Scanned ingredients used...'],
       steps: ['Step 1: Prep your ingredients', 'Step 2: Cook according to recipe details', 'Step 3: Enjoy!']
     };
-    navigateTo(AppView.RecipeDetail, newRecipe);
+    replaceWith(AppView.RecipeDetail, newRecipe);
   };
+
+  const handleDeleteRecipe = useCallback(async () => {
+    if (!selectedRecipe) return;
+    const recipeId = selectedRecipe.id;
+    setRecipeDeleting(true);
+    setShowDeleteRecipeConfirm(false);
+    let dbOk = false;
+    if (authUser) {
+      try {
+        await deleteRecipeInDB(authUser.uid, recipeId);
+        dbOk = true;
+      } catch {
+        // Still remove locally so the UI updates
+      }
+    } else {
+      dbOk = true;
+    }
+    setRecipes((prev) => prev.filter((r) => r.id !== recipeId));
+    setSelectedRecipe(null);
+    setScaledRecipe(null);
+    setShowShoppingListPrompt(false);
+    setRecipeDeleting(false);
+    if (!dbOk) {
+      setShoppingListToast('Recipe removed; couldn’t sync to cloud.');
+      setTimeout(() => setShoppingListToast(null), 4000);
+    }
+    setCurrentView(AppView.Home);
+    if (typeof window !== 'undefined' && window.history) {
+      window.history.replaceState({ view: AppView.Home } as HistoryState, '', window.location.pathname);
+    }
+  }, [authUser, selectedRecipe]);
 
   const addRecipeToShoppingList = useCallback(async () => {
     if (!authUser || !selectedRecipe) return;
@@ -350,51 +410,140 @@ const App: React.FC = () => {
         <p className="text-stone-500 text-sm">What are we cooking today?</p>
       </header>
 
-      <div className="px-6">
-        <div className="relative">
-          <span className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-stone-400">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-          </span>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search recipes or ingredients..."
-            className="w-full bg-white border border-stone-200 rounded-xl py-3 pl-12 pr-4 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all text-sm placeholder:text-stone-400"
-          />
-        </div>
-      </div>
-
-      <section className="px-6 space-y-5">
-        <div className="space-y-4">
-          <h2 className="text-xl font-semibold text-stone-900 tracking-tight">My Recipes</h2>
-          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 scrollbar-none">
-            {(['recent', 'name', 'difficulty', 'time'] as const).map((key) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setRecipeSort(key)}
-                className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                  recipeSort === key
-                    ? 'bg-stone-900 text-white'
-                    : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
-                }`}
-              >
-                {key === 'recent' && 'Recent'}
-                {key === 'name' && 'Name'}
-                {key === 'difficulty' && 'Difficulty'}
-                {key === 'time' && 'Time'}
-              </button>
-            ))}
+      {recipes.length > 0 && (
+        <div className="px-6">
+          <div className="relative">
+            <span className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-stone-400">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            </span>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search recipes or ingredients..."
+              className="w-full bg-white border border-stone-200 rounded-xl py-3 pl-12 pr-4 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all text-sm placeholder:text-stone-400"
+            />
           </div>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-2 gap-3">
-          {filteredRecipes.map(recipe => (
-            <RecipeCard key={recipe.id} recipe={recipe} onClick={handleRecipeClick} />
-          ))}
-        </div>
-        {searchQuery.trim() && filteredRecipes.length === 0 && (
-          <p className="text-stone-500 text-sm py-4">No recipes match &quot;{searchQuery.trim()}&quot;.</p>
+      )}
+
+      <section className="px-6 space-y-5">
+        <h2 className="text-xl font-semibold text-stone-900 tracking-tight">My Recipes</h2>
+
+        {recipes.length === 0 ? (
+          <div className="py-8 text-center">
+            <p className="text-stone-500 text-sm mb-6">Create your first recipe using one of the options below.</p>
+
+            {showRecipeOnboardingTip && (
+              <div className="mb-6 mx-auto max-w-sm animate-in fade-in slide-in-from-top-2 duration-300" role="status" aria-live="polite">
+                <div className="bg-emerald-600 text-white rounded-2xl px-4 py-4 shadow-lg">
+                  <p className="text-sm font-medium text-left mb-3">
+                    Start here – paste a YouTube cooking video link to get a recipe with step-by-step timestamps.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRecipeOnboardingTipShown();
+                      setShowRecipeOnboardingTip(false);
+                    }}
+                    className="w-full py-2 rounded-xl bg-white/20 hover:bg-white/30 text-sm font-semibold transition-colors"
+                  >
+                    Got it
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-3 max-w-sm mx-auto">
+              <button
+                type="button"
+                onClick={() => {
+                  if (showRecipeOnboardingTip) {
+                    setRecipeOnboardingTipShown();
+                    setShowRecipeOnboardingTip(false);
+                  }
+                  navigateTo(AppView.CreateFromYouTube);
+                }}
+                className="w-full flex items-center gap-4 p-4 rounded-2xl border-2 border-stone-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/50 transition-all text-left group"
+              >
+                <span className="flex-shrink-0 w-12 h-12 rounded-xl bg-red-100 flex items-center justify-center group-hover:bg-red-200 transition-colors">
+                  <svg className="w-6 h-6 text-red-600" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                </span>
+                <div>
+                  <span className="font-semibold text-stone-900 block">From YouTube</span>
+                  <span className="text-xs text-stone-500">Paste a video link → get a recipe with step timestamps</span>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (showRecipeOnboardingTip) {
+                    setRecipeOnboardingTipShown();
+                    setShowRecipeOnboardingTip(false);
+                  }
+                  navigateTo(AppView.CreateFromChat);
+                }}
+                className="w-full flex items-center gap-4 p-4 rounded-2xl border-2 border-stone-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/50 transition-all text-left group"
+              >
+                <span className="flex-shrink-0 w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center group-hover:bg-emerald-200 transition-colors">
+                  <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+                </span>
+                <div>
+                  <span className="font-semibold text-stone-900 block">From chat</span>
+                  <span className="text-xs text-stone-500">Describe a dish → AI generates a full recipe</span>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (showRecipeOnboardingTip) {
+                    setRecipeOnboardingTipShown();
+                    setShowRecipeOnboardingTip(false);
+                  }
+                  navigateTo(AppView.Scanner);
+                }}
+                className="w-full flex items-center gap-4 p-4 rounded-2xl border-2 border-stone-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/50 transition-all text-left group"
+              >
+                <span className="flex-shrink-0 w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center group-hover:bg-amber-200 transition-colors">
+                  <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /></svg>
+                </span>
+                <div>
+                  <span className="font-semibold text-stone-900 block">Scan ingredients</span>
+                  <span className="text-xs text-stone-500">Photo or list → quick recipe from what you have</span>
+                </div>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 scrollbar-none">
+              {(['recent', 'name', 'difficulty', 'time'] as const).map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setRecipeSort(key)}
+                  className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                    recipeSort === key
+                      ? 'bg-stone-900 text-white'
+                      : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                  }`}
+                >
+                  {key === 'recent' && 'Recent'}
+                  {key === 'name' && 'Name'}
+                  {key === 'difficulty' && 'Difficulty'}
+                  {key === 'time' && 'Time'}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-2 gap-3">
+              {filteredRecipes.map(recipe => (
+                <RecipeCard key={recipe.id} recipe={recipe} onClick={handleRecipeClick} />
+              ))}
+            </div>
+            {searchQuery.trim() && filteredRecipes.length === 0 && (
+              <p className="text-stone-500 text-sm py-4">No recipes match &quot;{searchQuery.trim()}&quot;.</p>
+            )}
+          </>
         )}
       </section>
     </div>
@@ -421,6 +570,12 @@ const App: React.FC = () => {
         <div className="px-6 pt-8 space-y-6">
           <div className="space-y-2">
             <h1 className="text-3xl font-bold text-stone-800 tracking-tight">{selectedRecipe.title}</h1>
+            {selectedRecipe.videoUrl && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-50 text-red-700 text-xs font-medium" title="YouTube recipe with step-by-step video">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                YouTube recipe · video in cooking mode
+              </span>
+            )}
             <p className="text-stone-500 leading-relaxed">{selectedRecipe.description}</p>
           </div>
 
@@ -484,7 +639,57 @@ const App: React.FC = () => {
               ))}
             </div>
           </div>
+
+          <div className="pt-6 border-t border-stone-100">
+            <button
+              type="button"
+              onClick={() => setShowDeleteRecipeConfirm(true)}
+              disabled={recipeDeleting}
+              className="text-sm text-red-600 hover:text-red-700 disabled:opacity-60 flex items-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              Delete recipe
+            </button>
+          </div>
         </div>
+
+        {showDeleteRecipeConfirm && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40" role="dialog" aria-modal="true" aria-labelledby="delete-recipe-title">
+            <div className="bg-white rounded-2xl shadow-xl border border-stone-200 max-w-sm w-full p-5 space-y-4">
+              <h2 id="delete-recipe-title" className="text-base font-bold text-stone-800">
+                Delete recipe?
+              </h2>
+              <p className="text-sm text-stone-600">
+                &quot;{selectedRecipe?.title}&quot; will be removed from your recipes. This can&apos;t be undone.
+              </p>
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteRecipeConfirm(false)}
+                  disabled={recipeDeleting}
+                  className="flex-1 py-3 rounded-xl bg-stone-100 text-stone-700 font-medium text-sm hover:bg-stone-200 disabled:opacity-60 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteRecipe}
+                  disabled={recipeDeleting}
+                  className="flex-1 py-3 rounded-xl bg-red-600 text-white font-semibold text-sm hover:bg-red-700 disabled:opacity-60 flex items-center justify-center gap-2 transition-colors"
+                >
+                  {recipeDeleting ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Deleting…
+                    </>
+                  ) : (
+                    'Delete'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {shoppingListToast && (
           <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[60] max-w-md w-[calc(100%-2rem)] px-4 py-3 rounded-xl bg-stone-800 text-white text-sm font-medium text-center shadow-lg">
@@ -516,10 +721,11 @@ const App: React.FC = () => {
           </div>
         )}
         <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center pointer-events-none">
-          <div className="w-full max-w-md p-6 pt-20 pointer-events-auto bg-gradient-to-t from-white via-white to-white/0">
+          <div className="w-full max-w-md p-6 pt-20 pointer-events-none bg-gradient-to-t from-white via-white to-white/0">
             <button
+              type="button"
               onClick={goToSetup}
-              className="w-full bg-emerald-600 text-white font-black py-4 rounded-2xl shadow-lg hover:bg-emerald-700 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+              className="w-full bg-emerald-600 text-white font-black py-4 rounded-2xl shadow-lg hover:bg-emerald-700 active:scale-[0.98] transition-all flex items-center justify-center gap-2 pointer-events-auto"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               PREPARE RECIPE
@@ -640,7 +846,7 @@ const App: React.FC = () => {
             onPreferencesUpdated={setUserPreferences}
             onCreated={(recipe) => {
               setRecipes((prev) => [...prev.filter((r) => r.id !== recipe.id), recipe]);
-              navigateTo(AppView.RecipeDetail, recipe);
+              replaceWith(AppView.RecipeDetail, recipe);
             }}
             onCancel={() => window.history.back()}
           />
@@ -654,7 +860,7 @@ const App: React.FC = () => {
             onPreferencesUpdated={setUserPreferences}
             onCreated={(recipe) => {
               setRecipes((prev) => [...prev.filter((r) => r.id !== recipe.id), recipe]);
-              navigateTo(AppView.RecipeDetail, recipe);
+              replaceWith(AppView.RecipeDetail, recipe);
             }}
             onCancel={() => window.history.back()}
           />

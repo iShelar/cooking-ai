@@ -851,13 +851,15 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
     if (userId) {
       try {
         await subtractRecipeIngredientsFromInventory(userId, recipe);
-        notify('Ingredients subtracted from inventory.');
+        notify('Inventory updated.');
+        setFinishPromptDismissed(true);
       } catch {
         notify('Could not update inventory.');
       }
+    } else {
+      setFinishPromptDismissed(true);
     }
-    onExit();
-  }, [userId, recipe, onExit]);
+  }, [userId, recipe]);
 
   return (
     <div className="fixed inset-0 z-50 flex justify-center items-center overflow-hidden bg-stone-200/40 h-full min-h-dvh">
@@ -1120,7 +1122,7 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
               onClick={handleFinishRecipe}
               className="flex-1 py-2.5 rounded-xl bg-emerald-500 text-white font-semibold text-sm hover:bg-emerald-600 active:scale-[0.98] transition-all"
             >
-              Update inventory & exit
+              Update inventory
             </button>
             <button
               type="button"

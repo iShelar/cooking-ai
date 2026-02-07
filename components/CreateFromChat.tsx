@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { generateRecipeFromDescription } from "../services/geminiService";
 import { updateRecipeInDB } from "../services/dbService";
-import { DEFAULT_RECIPE_IMAGE } from "../constants";
+import { getRecipeTitleImageDataUrl } from "../constants";
 import type { Recipe, UserPreferences } from "../types";
 
 interface CreateFromChatProps {
@@ -81,15 +81,16 @@ const CreateFromChat: React.FC<CreateFromChatProps> = ({
       const recipeId = "chat_" + Date.now() + "_" + Math.random().toString(36).slice(2, 9);
       const difficulty: Recipe["difficulty"] =
         parsed.difficulty === "Hard" || parsed.difficulty === "Medium" ? parsed.difficulty : "Easy";
+      const title = String(parsed.title ?? "My recipe");
       const recipe: Recipe = {
         id: recipeId,
-        title: String(parsed.title ?? "My recipe"),
+        title,
         description: String(parsed.description ?? ""),
         prepTime: String(parsed.prepTime ?? "10 min"),
         cookTime: String(parsed.cookTime ?? "20 min"),
         difficulty,
         servings: 2,
-        image: DEFAULT_RECIPE_IMAGE,
+        image: getRecipeTitleImageDataUrl(title),
         ingredients: Array.isArray(parsed.ingredients) ? parsed.ingredients : [],
         steps: Array.isArray(parsed.steps) ? parsed.steps : [],
       };

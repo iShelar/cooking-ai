@@ -3,51 +3,23 @@ import {
   doc,
   getDocs,
   setDoc,
-  writeBatch,
+  deleteDoc,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { Recipe } from '../types';
-import { MOCK_RECIPES } from '../constants';
-
-/**
- * Seeds sample recipes for this user if their recipes collection is empty.
- */
-const seedRecipesIfEmpty = async (userId: string): Promise<boolean> => {
-  try {
-    const recipesRef = collection(db, 'users', userId, 'recipes');
-    const snapshot = await getDocs(recipesRef);
-    if (snapshot.size > 0) return true;
-
-    const batch = writeBatch(db);
-    for (const recipe of MOCK_RECIPES) {
-      const docRef = doc(db, 'users', userId, 'recipes', recipe.id);
-      batch.set(docRef, toFirestoreRecipe(recipe));
-    }
-    await batch.commit();
-    return true;
-  } catch (err) {
-    console.warn('Firestore seed failed (enable Firestore and set rules):', err);
-    return false;
-  }
-};
 
 /**
  * Fetches all recipes for the given user from Firestore.
- * Seeds sample recipes if the user's collection is empty.
- * On failure, returns sample recipes locally.
+ * Returns an empty array if the collection is empty or on read failure.
  */
 export const getRecipesFromFirestore = async (userId: string): Promise<Recipe[]> => {
   try {
-    await seedRecipesIfEmpty(userId);
     const recipesRef = collection(db, 'users', userId, 'recipes');
     const snapshot = await getDocs(recipesRef);
     return snapshot.docs.map((d) => fromFirestoreRecipe(d.id, d.data()));
   } catch (err) {
-    console.warn(
-      'Firestore read failed. Using local sample recipes.',
-      err
-    );
-    return [...MOCK_RECIPES];
+    console.warn('Firestore read failed:', err);
+    return [];
   }
 };
 
@@ -57,6 +29,14 @@ export const getRecipesFromFirestore = async (userId: string): Promise<Recipe[]>
 export const updateRecipeInFirestore = async (userId: string, recipe: Recipe): Promise<void> => {
   const docRef = doc(db, 'users', userId, 'recipes', recipe.id);
   await setDoc(docRef, toFirestoreRecipe(recipe), { merge: true });
+};
+
+/**
+ * Deletes a recipe from the user's Firestore collection.
+ */
+export const deleteRecipeFromFirestore = async (userId: string, recipeId: string): Promise<void> => {
+  const docRef = doc(db, 'users', userId, 'recipes', recipeId);
+  await deleteDoc(docRef);
 };
 
 function toFirestoreRecipe(r: Recipe): Record<string, unknown> {
