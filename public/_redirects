@@ -1,2 +1,2 @@
-# SPA: serve index.html for all routes so client-side routing (e.g. /share/TOKEN) works
-/*    /index.html   200
+# Redirects are in netlify.toml so /share/* hits the function (recipe meta for link preview) first,
+# then /* serves index.html for the SPA. Do not add a catch-all here or it can override /share/*.

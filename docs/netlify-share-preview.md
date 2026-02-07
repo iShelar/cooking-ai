@@ -33,4 +33,5 @@ To get the key: Firebase Console → Project settings → Service accounts → G
 ## Build & deploy
 
 - Build publishes `dist`; functions live in `netlify/functions`.
-- `netlify.toml` rewrites `/share/*` to the function. No other routes are affected.
+- `netlify.toml` rewrites `/share/*` to the function first, then `/*` to `/index.html` for the SPA.
+- **Important:** Do not add a catch-all in `public/_redirects` (e.g. `/* /index.html 200`). Netlify merges `_redirects` with `netlify.toml`, and that catch-all can match `/share/*` first and serve the default HTML instead of the function, so link previews stay generic. Redirects are centralized in `netlify.toml` for this reason.
