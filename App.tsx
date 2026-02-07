@@ -42,6 +42,8 @@ const App: React.FC = () => {
   const [scaledRecipe, setScaledRecipe] = useState<Recipe | null>(null);
   const recipesRef = useRef<Recipe[]>([]);
   recipesRef.current = recipes;
+  const currentViewRef = useRef<AppView>(AppView.Home);
+  currentViewRef.current = currentView;
   const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -179,6 +181,7 @@ const App: React.FC = () => {
   }, [authUser, loadData]);
 
   // Sync navigation with browser history so back/forward (and swipe-back on mobile) work.
+  // When navigating to Home, replace state instead of push so back from Home doesn't go to previous in-app screens.
   const navigateTo = useCallback((view: AppView, recipe?: Recipe | null) => {
     setCurrentView(view);
     if (recipe) {
@@ -190,7 +193,11 @@ const App: React.FC = () => {
     }
     const state: HistoryState = { view, recipeId: recipe?.id };
     if (typeof window !== 'undefined' && window.history) {
-      window.history.pushState(state, '', window.location.pathname);
+      if (view === AppView.Home) {
+        window.history.replaceState(state, '', window.location.pathname);
+      } else {
+        window.history.pushState(state, '', window.location.pathname);
+      }
     }
   }, []);
 
@@ -217,6 +224,11 @@ const App: React.FC = () => {
     }
     const onPopState = (e: PopStateEvent) => {
       const state = e.state as HistoryState | null;
+      // When we're on Home and user goes back to another Home entry, go back once more to clear in-app history.
+      if (currentViewRef.current === AppView.Home && state?.view === AppView.Home) {
+        window.history.back();
+        return;
+      }
       if (state?.view) {
         setCurrentView(state.view);
         if (state.recipeId) {
@@ -232,6 +244,9 @@ const App: React.FC = () => {
           setSelectedRecipe(null);
           setScaledRecipe(null);
         }
+      } else if (currentViewRef.current === AppView.Home) {
+        // Back from Home went past our history (e.g. external); keep user on Home and fix history.
+        window.history.replaceState({ view: AppView.Home } as HistoryState, '', window.location.pathname);
       }
     };
     window.addEventListener('popstate', onPopState);
