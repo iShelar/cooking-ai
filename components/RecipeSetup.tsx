@@ -263,9 +263,17 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
 
   return (
     <div className="fixed inset-0 z-[60] flex justify-center overflow-hidden bg-stone-200/40">
-      <div className="w-full max-w-md min-h-full bg-stone-50 shadow-2xl flex flex-col overflow-hidden">
+      <div
+        className="w-full max-w-md min-h-full bg-stone-50 shadow-2xl flex flex-col overflow-hidden"
+        style={{
+          paddingTop: 'env(safe-area-inset-top)',
+          paddingLeft: 'env(safe-area-inset-left)',
+          paddingRight: 'env(safe-area-inset-right)',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+        }}
+      >
       <div className="bg-white px-6 py-6 border-b border-stone-200 flex items-center justify-between">
-        <button onClick={onCancel} className="p-2 -ml-2 text-stone-500 active:scale-90 transition-transform">
+        <button onClick={onCancel} className="p-2 -ml-2 text-stone-500 rounded-xl hover:bg-stone-100 active:scale-90 transition-transform">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
         </button>
         <h2 className="font-bold text-stone-800 tracking-tight">Setup Assistant</h2>

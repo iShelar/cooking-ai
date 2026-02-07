@@ -1013,12 +1013,15 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
 
       <div className="bg-white border-t border-stone-200 flex flex-col flex-shrink-0 min-h-[12rem]">
         <div
-          className={`rounded-t-2xl bg-stone-50 border border-stone-200 border-b-0 shadow-sm overflow-hidden flex flex-col captions-panel flex-shrink-0 transition-[max-height] duration-300 ease-out ${assistantExpanded ? 'max-h-[14rem]' : 'max-h-[2.75rem]'}`}
+          className={`rounded-t-2xl bg-stone-50 overflow-hidden flex flex-col captions-panel flex-shrink-0 min-w-0 transition-[max-height] duration-300 ease-out ${assistantExpanded ? 'max-h-[14rem]' : 'max-h-[2.75rem]'}`}
+          style={{
+            boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05), inset 0 1px 0 0 rgb(231 229 228), inset 1px 0 0 0 rgb(231 229 228), inset -1px 0 0 0 rgb(231 229 228)',
+          }}
         >
           <button
             type="button"
             onClick={() => setAssistantExpanded((e) => !e)}
-            className="w-full px-4 py-2.5 flex items-center justify-between gap-2 border-b border-stone-200 flex-shrink-0 text-left hover:bg-stone-100/80 active:bg-stone-200/60 transition-colors"
+            className="w-full min-w-0 px-4 py-2.5 flex items-center justify-between gap-2 border-b border-stone-200 flex-shrink-0 text-left hover:bg-stone-100/80 active:bg-stone-200/60 transition-colors rounded-t-2xl"
           >
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.4)]" aria-hidden />
