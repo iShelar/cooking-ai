@@ -989,40 +989,42 @@ const App: React.FC = () => {
         )}
 
         {shareLinkUrl && (
-          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40" role="dialog" aria-modal="true" aria-labelledby="share-link-title">
-            <div className="bg-white rounded-2xl shadow-xl border border-stone-200 max-w-sm w-full p-5 space-y-4">
-              <h2 id="share-link-title" className="text-base font-bold text-stone-800">Share recipe</h2>
-              <p className="text-xs text-stone-500">Send this link to anyone. They can open it and save the recipe.</p>
-              <div className="bg-stone-100 rounded-xl px-3 py-2.5 overflow-x-auto">
-                <p className="text-xs text-stone-700 break-all select-all">{shareLinkUrl}</p>
-              </div>
-              <div className="flex flex-col gap-2 pt-1">
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={copyShareLinkFromModal}
-                    className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-semibold text-sm hover:bg-emerald-700"
-                  >
-                    Copy link
-                  </button>
-                  {typeof navigator !== 'undefined' && navigator.share && (
-                    <button
-                      type="button"
-                      onClick={shareViaNative}
-                      className="flex-1 py-3 rounded-xl bg-stone-800 text-white font-semibold text-sm hover:bg-stone-700"
-                    >
-                      Share
-                    </button>
-                  )}
-                </div>
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 bg-black/40" role="dialog" aria-modal="true" aria-labelledby="share-link-title">
+            <div className="bg-white rounded-xl shadow-xl border border-stone-200 max-w-sm w-full p-3">
+              <h2 id="share-link-title" className="text-sm font-bold text-stone-800 mb-1">Share recipe</h2>
+              <div className="flex items-center gap-2 bg-stone-100 rounded-lg px-2 py-1.5 overflow-x-auto">
+                <p className="text-xs text-stone-700 break-all select-all min-w-0 flex-1">{shareLinkUrl}</p>
                 <button
                   type="button"
-                  onClick={() => setShareLinkUrl(null)}
-                  className="w-full py-2.5 rounded-xl text-stone-500 font-medium text-sm hover:bg-stone-100"
+                  onClick={copyShareLinkFromModal}
+                  className="shrink-0 p-1.5 rounded-md text-stone-600 hover:bg-stone-200 hover:text-stone-800"
+                  title="Copy link"
+                  aria-label="Copy link"
                 >
-                  Done
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    {/* Back rectangle: only the part visible behind the front (L-shape) */}
+                    <path d="M2 4v16H8v-14h8v-2H2z" />
+                    {/* Front rectangle (full) */}
+                    <path d="M8 6h14v16H8V6z" />
+                  </svg>
                 </button>
               </div>
+              {typeof navigator !== 'undefined' && navigator.share && (
+                <button
+                  type="button"
+                  onClick={shareViaNative}
+                  className="w-full mt-2 py-2.5 rounded-lg bg-stone-800 text-white font-semibold text-sm hover:bg-stone-700"
+                >
+                  Share
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setShareLinkUrl(null)}
+                className="w-full mt-1.5 py-1.5 text-stone-500 text-xs hover:text-stone-700"
+              >
+                Done
+              </button>
             </div>
           </div>
         )}

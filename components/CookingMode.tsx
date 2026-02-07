@@ -641,7 +641,19 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
         else if (fc.name === 'nextStep') triggerNextStep();
         else if (fc.name === 'previousStep') triggerPrevStep();
         else if (fc.name === 'goToStep') triggerGoToStep(fc.args.index as number);
-        else if (fc.name === 'setAudioSource') setAudioSource((fc.args.source === 'video' ? 'video' : 'agent') as 'agent' | 'video');
+        else if (fc.name === 'setAudioSource') {
+          const source = (fc.args.source === 'video' ? 'video' : 'agent') as 'agent' | 'video';
+          setAudioSource(source);
+          const player = ytPlayerRef.current;
+          if (source === 'video' && player) {
+            try {
+              player.unMute?.();
+              player.playVideo?.();
+            } catch (_) {}
+          } else if (source === 'agent' && player) {
+            try { player.mute?.(); } catch (_) {}
+          }
+        }
         else if (fc.name === 'setVideoPlayback') {
           const action = (fc.args?.action === 'play' || fc.args?.action === 'stop' ? fc.args.action : 'pause') as 'play' | 'pause' | 'stop';
           const player = ytPlayerRef.current;
@@ -1151,7 +1163,14 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
               Agent
             </button>
             <button
-              onClick={() => setAudioSource('video')}
+              onClick={() => {
+                setAudioSource('video');
+                const player = ytPlayerRef.current;
+                if (player) {
+                  player.unMute?.();
+                  player.playVideo?.();
+                }
+              }}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold ${audioSource === 'video' ? 'bg-red-600 text-white' : 'bg-stone-100 text-stone-500'}`}
             >
               Video
