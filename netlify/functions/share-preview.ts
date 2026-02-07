@@ -3,6 +3,25 @@ import * as admin from 'firebase-admin';
 
 const SHARED_RECIPES_COLLECTION = 'sharedRecipes';
 
+/** Crawlers that must get recipe meta without any redirect (they follow meta refresh and then scrape the SPA). */
+const CRAWLER_PATTERNS = [
+  'facebookexternalhit',
+  'Facebot',
+  'Twitterbot',
+  'Slackbot',
+  'WhatsApp',
+  'Discordbot',
+  'LinkedInBot',
+  'Pinterest',
+  'TelegramBot',
+  'Googlebot',
+];
+
+function isCrawler(userAgent: string): boolean {
+  const ua = (userAgent || '').toLowerCase();
+  return CRAWLER_PATTERNS.some((p) => ua.includes(p.toLowerCase()));
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -30,6 +49,7 @@ export const handler: Handler = async (event: HandlerEvent): Promise<HandlerResp
     return { statusCode: 404, body: 'Not found' };
   }
 
+  const userAgent = event.headers['user-agent'] || event.headers['User-Agent'] || '';
   const origin =
     event.headers['x-forwarded-proto'] && event.headers['host']
       ? `${event.headers['x-forwarded-proto']}://${event.headers['host']}`
@@ -74,14 +94,13 @@ export const handler: Handler = async (event: HandlerEvent): Promise<HandlerResp
   const safeUrl = escapeHtml(origin + path);
   const safeSpaUrl = escapeHtml(spaUrl);
 
-  // Always return HTML with recipe meta so every request (including crawlers) gets the right preview.
-  // Browsers redirect immediately to the SPA via meta refresh + script; crawlers ignore JS and keep the meta.
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
+  const crawler = isCrawler(userAgent);
+
+  // Crawlers: return recipe meta only, no redirect. Facebook etc. follow meta refresh and then scrape
+  // the SPA (generic meta). So for crawlers we must not send meta refresh or they'll scrape the wrong page.
+  const headMeta = `
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="refresh" content="0;url=${safeSpaUrl}">
   <title>${safeTitle}</title>
   <meta name="description" content="${safeDesc}">
   <meta property="og:type" content="website">
@@ -92,7 +111,23 @@ export const handler: Handler = async (event: HandlerEvent): Promise<HandlerResp
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${safeTitle}">
   <meta name="twitter:description" content="${safeDesc}">
-  <meta name="twitter:image" content="${safeImage}">
+  <meta name="twitter:image" content="${safeImage}">`;
+
+  const html = crawler
+    ? `<!DOCTYPE html>
+<html lang="en">
+<head>${headMeta}
+</head>
+<body>
+  <h1>${safeTitle}</h1>
+  <p>${safeDesc}</p>
+  <p><a href="${safeSpaUrl}">Open recipe</a></p>
+</body>
+</html>`
+    : `<!DOCTYPE html>
+<html lang="en">
+<head>${headMeta}
+  <meta http-equiv="refresh" content="0;url=${safeSpaUrl}">
 </head>
 <body>
   <p>Opening recipe…</p>
