@@ -3,24 +3,6 @@ import * as admin from 'firebase-admin';
 
 const SHARED_RECIPES_COLLECTION = 'sharedRecipes';
 
-const CRAWLER_PATTERNS = [
-  'facebookexternalhit',
-  'Facebot',
-  'Twitterbot',
-  'Slackbot',
-  'WhatsApp',
-  'Discordbot',
-  'LinkedInBot',
-  'Pinterest',
-  'TelegramBot',
-  'Googlebot',
-];
-
-function isCrawler(userAgent: string): boolean {
-  const ua = (userAgent || '').toLowerCase();
-  return CRAWLER_PATTERNS.some((p) => ua.includes(p.toLowerCase()));
-}
-
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -48,7 +30,6 @@ export const handler: Handler = async (event: HandlerEvent): Promise<HandlerResp
     return { statusCode: 404, body: 'Not found' };
   }
 
-  const userAgent = event.headers['user-agent'] || event.headers['User-Agent'] || '';
   const origin =
     event.headers['x-forwarded-proto'] && event.headers['host']
       ? `${event.headers['x-forwarded-proto']}://${event.headers['host']}`
@@ -85,29 +66,22 @@ export const handler: Handler = async (event: HandlerEvent): Promise<HandlerResp
   const description = typeof recipe.description === 'string' ? recipe.description : '';
   const image = typeof recipe.image === 'string' ? recipe.image : '';
   const imageUrl = getAbsoluteImageUrl(image, origin);
-
-  if (!isCrawler(userAgent)) {
-    return {
-      statusCode: 302,
-      headers: {
-        Location: `/?share=${encodeURIComponent(token)}`,
-        'Cache-Control': 'no-cache',
-      },
-      body: '',
-    };
-  }
+  const spaUrl = origin + '/?share=' + encodeURIComponent(token);
 
   const safeTitle = escapeHtml(title);
   const safeDesc = escapeHtml(description);
   const safeImage = escapeHtml(imageUrl);
   const safeUrl = escapeHtml(origin + path);
-  const openUrl = escapeHtml(origin + '/?share=' + encodeURIComponent(token));
+  const safeSpaUrl = escapeHtml(spaUrl);
 
+  // Always return HTML with recipe meta so every request (including crawlers) gets the right preview.
+  // Browsers redirect immediately to the SPA via meta refresh + script; crawlers ignore JS and keep the meta.
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="refresh" content="0;url=${safeSpaUrl}">
   <title>${safeTitle}</title>
   <meta name="description" content="${safeDesc}">
   <meta property="og:type" content="website">
@@ -121,9 +95,9 @@ export const handler: Handler = async (event: HandlerEvent): Promise<HandlerResp
   <meta name="twitter:image" content="${safeImage}">
 </head>
 <body>
-  <h1>${safeTitle}</h1>
-  <p>${safeDesc}</p>
-  <p><a href="${openUrl}">Open recipe</a></p>
+  <p>Opening recipe…</p>
+  <p><a href="${safeSpaUrl}">Open recipe</a></p>
+  <script>window.location.replace(${JSON.stringify(spaUrl)});</script>
 </body>
 </html>`;
 

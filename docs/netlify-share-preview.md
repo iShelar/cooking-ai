@@ -1,12 +1,21 @@
 # Netlify share link preview (recipe image & description)
 
-When someone shares a recipe link (`/share/TOKEN`), crawlers (Facebook, Twitter, Slack, WhatsApp, etc.) get HTML with **recipe-specific** Open Graph meta so the preview shows the recipe image, title, and description instead of the site favicon and site description.
+When someone shares a recipe link (`/share/TOKEN`), the **first response** is always HTML with **recipe-specific** Open Graph meta, so link previews (Facebook, Twitter, Slack, WhatsApp, etc.) show the recipe image, title, and description instead of the site favicon and site description.
 
 ## How it works
 
 - **Netlify function** `share-preview` handles `GET /share/:token`.
-- **Crawlers** (by User-Agent): function returns 200 HTML with `og:title`, `og:description`, `og:image` from the shared recipe in Firestore.
-- **Browsers**: function returns 302 to `/?share=TOKEN`; the SPA loads and shows the shared recipe using the `?share=` param.
+- **Every request** gets 200 HTML with `og:title`, `og:description`, `og:image` from the shared recipe in Firestore. Browsers then redirect to `/?share=TOKEN` via meta refresh + script so the SPA loads; crawlers keep the meta for the preview.
+- No User-Agent detection: the first byte response is always the one with recipe meta, so caching and any crawler see the correct preview.
+
+## If you still see the old preview (favicon / site description)
+
+Platforms **cache** link previews. After deploying the function, you must **refresh the cache** or new shares will keep showing the old preview:
+
+1. **Facebook:** [Sharing Debugger](https://developers.facebook.com/tools/debug/) — paste your share URL, click **Scrape Again**.
+2. **Twitter/X:** [Card Validator](https://cards-dev.twitter.com/validator) — paste the URL to re-fetch.
+3. **LinkedIn:** [Post Inspector](https://www.linkedin.com/post-inspector/) — enter the URL and inspect.
+4. **Slack / Discord / WhatsApp:** Often use their own cache; re-sharing after 24–48h or using a **new** share URL (new token) can show the updated preview.
 
 ## Required: Netlify environment variable
 
