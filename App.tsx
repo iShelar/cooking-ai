@@ -83,12 +83,16 @@ const App: React.FC = () => {
   /** When set, show a modal with the share URL and Copy button (fallback when clipboard API is blocked on mobile/PWA). */
   const [shareLinkUrl, setShareLinkUrl] = useState<string | null>(null);
 
-  // On first load, if URL is /share/TOKEN, show shared recipe view.
+  // On first load, if URL is /share/TOKEN or ?share=TOKEN (Netlify function redirect), show shared recipe view.
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.location.pathname.startsWith('/share/')) return;
-    const segment = window.location.pathname.slice(7).split('/')[0]?.trim();
-    if (segment) {
-      setSharedRecipeToken(segment);
+    if (typeof window === 'undefined') return;
+    const path = window.location.pathname;
+    const params = new URLSearchParams(window.location.search);
+    const tokenFromPath = path.startsWith('/share/') ? path.slice(7).split('/')[0]?.trim() : null;
+    const tokenFromQuery = params.get('share')?.trim() || null;
+    const token = tokenFromPath || tokenFromQuery;
+    if (token) {
+      setSharedRecipeToken(token);
       setCurrentView(AppView.SharedRecipe);
     }
   }, []);
@@ -98,7 +102,9 @@ const App: React.FC = () => {
       setAuthUser(user);
       setAuthChecked(true);
       if (!user) {
-        const isShareLink = typeof window !== 'undefined' && window.location.pathname.startsWith('/share/');
+        const isShareLink =
+          typeof window !== 'undefined' &&
+          (window.location.pathname.startsWith('/share/') || new URLSearchParams(window.location.search).has('share'));
         setRecipes([]);
         setSelectedRecipe(null);
         setScaledRecipe(null);

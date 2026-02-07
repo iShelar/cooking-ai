@@ -1,0 +1,16 @@
+[build]
+  publish = "dist"
+  functions = "netlify/functions"
+
+# Share links: function returns recipe meta for crawlers, redirects browsers to SPA
+[[redirects]]
+  from = "/share/*"
+  to = "/.netlify/functions/share-preview"
+  status = 200
+  force = true
+
+# SPA: serve index.html for all other routes
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
