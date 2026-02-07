@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   fetchTimestampsForUrl,
   recipeFromTimestampResult,
@@ -11,6 +11,8 @@ interface CreateFromYouTubeProps {
   userId: string;
   savedPreferences: UserPreferences | null;
   onPreferencesUpdated?: (prefs: UserPreferences) => void;
+  initialUrl?: string;
+  autoStart?: boolean;
   onCreated: (recipe: Recipe) => void;
   onCancel: () => void;
 }
@@ -20,10 +22,13 @@ type Step = "idle" | "fetching" | "creating" | "saving" | "success" | "error";
 const CreateFromYouTube: React.FC<CreateFromYouTubeProps> = ({
   userId,
   savedPreferences,
+  initialUrl,
+  autoStart,
   onCreated,
   onCancel,
 }) => {
-  const [url, setUrl] = useState("");
+  const [url, setUrl] = useState(initialUrl ?? "");
+  const hasAutoStartedRef = useRef(false);
   const [dietaryChoice, setDietaryChoice] = useState<"use" | "skip">(
     savedPreferences && (savedPreferences.dietary?.length > 0 || savedPreferences.allergies?.length > 0) ? "use" : "skip"
   );
@@ -34,6 +39,19 @@ const CreateFromYouTube: React.FC<CreateFromYouTubeProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   const isBusy = step !== "idle" && step !== "success" && step !== "error";
+
+  useEffect(() => {
+    if (initialUrl != null && initialUrl.trim()) setUrl(initialUrl.trim());
+  }, [initialUrl]);
+
+  useEffect(() => {
+    if (!autoStart || !initialUrl?.trim() || hasAutoStartedRef.current) return;
+    hasAutoStartedRef.current = true;
+    const t = setTimeout(() => {
+      handleCreateRecipe(initialUrl.trim());
+    }, 400);
+    return () => clearTimeout(t);
+  }, [autoStart, initialUrl]);
 
   const getMessageForStep = (s: Step): string => {
     switch (s) {
@@ -50,8 +68,8 @@ const CreateFromYouTube: React.FC<CreateFromYouTubeProps> = ({
     }
   };
 
-  const handleCreateRecipe = async () => {
-    const u = url.trim();
+  const handleCreateRecipe = async (overrideUrl?: string) => {
+    const u = (overrideUrl ?? url).trim();
     if (!u) {
       setError("Paste a YouTube link to get started!");
       setStep("error");

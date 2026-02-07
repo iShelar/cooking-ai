@@ -80,6 +80,10 @@ const App: React.FC = () => {
   const [savingSharedRecipe, setSavingSharedRecipe] = useState(false);
   /** When set, show a modal with the share URL and Copy button (fallback when clipboard API is blocked on mobile/PWA). */
   const [shareLinkUrl, setShareLinkUrl] = useState<string | null>(null);
+  /** YouTube URL received via PWA share target (e.g. shared from YouTube app). Show confirmation then open Create from YouTube. */
+  const [pendingYouTubeShareUrl, setPendingYouTubeShareUrl] = useState<string | null>(null);
+  /** When set, pass to CreateFromYouTube and auto-start; cleared when leaving that view. */
+  const [initialYouTubeUrlForCreate, setInitialYouTubeUrlForCreate] = useState<string | null>(null);
 
   // On first load, if URL is /share/TOKEN, show shared recipe view.
   useEffect(() => {
@@ -90,6 +94,46 @@ const App: React.FC = () => {
       setCurrentView(AppView.SharedRecipe);
     }
   }, []);
+
+  // PWA share target: when app is opened with ?url=... or ?text=... (e.g. shared from YouTube), parse and show confirmation.
+  const isYouTubeUrl = useCallback((s: string | null): string | null => {
+    if (!s || typeof s !== 'string') return null;
+    const trimmed = s.trim();
+    if (/youtube\.com\/watch|youtu\.be\//i.test(trimmed)) return trimmed;
+    const urlMatch = trimmed.match(/(https?:\/\/[^\s]+youtube[^\s]*|https?:\/\/youtu\.be\/[^\s]+)/i);
+    return urlMatch ? urlMatch[1]!.trim() : null;
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || window.location.pathname.startsWith('/share/')) return;
+    const params = new URLSearchParams(window.location.search);
+    const urlParam = params.get('url');
+    const textParam = params.get('text');
+    const ytUrl = isYouTubeUrl(urlParam) || isYouTubeUrl(textParam);
+    if (ytUrl) {
+      setPendingYouTubeShareUrl(ytUrl);
+      const cleanUrl = window.location.pathname || '/';
+      window.history.replaceState(null, '', cleanUrl);
+    }
+  }, [isYouTubeUrl]);
+
+  const handleConfirmYouTubeShare = useCallback(() => {
+    if (!pendingYouTubeShareUrl) return;
+    setInitialYouTubeUrlForCreate(pendingYouTubeShareUrl);
+    setPendingYouTubeShareUrl(null);
+    setCurrentView(AppView.CreateFromYouTube);
+    if (typeof window !== 'undefined' && window.history) {
+      window.history.replaceState({ view: AppView.CreateFromYouTube } as HistoryState, '', window.location.pathname || '/');
+    }
+  }, [pendingYouTubeShareUrl]);
+
+  const handleDismissYouTubeShare = useCallback(() => {
+    setPendingYouTubeShareUrl(null);
+  }, []);
+
+  useEffect(() => {
+    if (currentView !== AppView.CreateFromYouTube) setInitialYouTubeUrlForCreate(null);
+  }, [currentView]);
 
   useEffect(() => {
     const unsubscribe = subscribeToAuthState((user) => {
@@ -1094,6 +1138,31 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
+      {pendingYouTubeShareUrl && authUser && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40" role="dialog" aria-modal="true" aria-labelledby="youtube-share-title">
+          <div className="bg-white rounded-2xl shadow-xl border border-stone-200 max-w-sm w-full p-5 space-y-4">
+            <h2 id="youtube-share-title" className="text-base font-bold text-stone-800">Create recipe from video?</h2>
+            <p className="text-sm text-stone-600">You shared a YouTube link. Create a recipe from this video?</p>
+            <p className="text-xs text-stone-500 break-all bg-stone-100 rounded-lg px-3 py-2">{pendingYouTubeShareUrl}</p>
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleDismissYouTubeShare}
+                className="flex-1 py-3 rounded-xl bg-stone-100 text-stone-700 font-medium text-sm hover:bg-stone-200"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmYouTubeShare}
+                className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-semibold text-sm hover:bg-emerald-700"
+              >
+                Create recipe
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showDietarySurvey && (
         <DietarySurvey
           initialPreferences={userPreferences}
@@ -1170,6 +1239,8 @@ const App: React.FC = () => {
             userId={authUser.uid}
             savedPreferences={userPreferences}
             onPreferencesUpdated={setUserPreferences}
+            initialUrl={initialYouTubeUrlForCreate ?? undefined}
+            autoStart={Boolean(initialYouTubeUrlForCreate)}
             onCreated={(recipe) => {
               setRecipes((prev) => [...prev.filter((r) => r.id !== recipe.id), recipe]);
               replaceWith(AppView.RecipeDetail, recipe);
