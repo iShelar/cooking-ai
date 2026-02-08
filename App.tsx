@@ -58,6 +58,8 @@ const App: React.FC = () => {
   const [shoppingListToast, setShoppingListToast] = useState<string | null>(null);
   /** When true, show "Want to see shopping list? Yes / No" bar after adding items. */
   const [showShoppingListPrompt, setShowShoppingListPrompt] = useState(false);
+  /** When set, next time we show Inventory open on this tab (e.g. 'shopping' from the prompt). */
+  const [openInventoryOnTab, setOpenInventoryOnTab] = useState<'inventory' | 'shopping' | null>(null);
   const [shoppingListAdding, setShoppingListAdding] = useState(false);
   /** User dietary/allergy preferences (loaded with app data). */
   const [userPreferences, setUserPreferences] = useState<UserPreferences | null>(null);
@@ -258,6 +260,11 @@ const App: React.FC = () => {
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
+
+  // Clear "open Inventory on shopping tab" when leaving Inventory so next open uses default tab.
+  useEffect(() => {
+    if (currentView !== AppView.Inventory) setOpenInventoryOnTab(null);
+  }, [currentView]);
 
   // One-time prompt at start: ask if user wants to use browser language for voice (based on navigator.language).
   useEffect(() => {
@@ -1092,7 +1099,8 @@ const App: React.FC = () => {
                 type="button"
                 onClick={() => {
                   setShowShoppingListPrompt(false);
-                  navigateTo(AppView.Inventory);
+                  setOpenInventoryOnTab('shopping');
+                  replaceWith(AppView.Inventory);
                 }}
                 className="px-4 py-2 rounded-lg bg-emerald-500 text-white text-sm font-semibold hover:bg-emerald-600 active:scale-[0.98] transition-all"
               >
@@ -1204,7 +1212,7 @@ const App: React.FC = () => {
       )}
       {currentView === AppView.Inventory && authUser && (
         <ErrorBoundary onReset={() => setCurrentView(AppView.Home)}>
-          <Inventory userId={authUser.uid} />
+          <Inventory userId={authUser.uid} initialTab={openInventoryOnTab ?? undefined} />
         </ErrorBoundary>
       )}
       {currentView === AppView.Profile && authUser && (

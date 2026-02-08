@@ -259,12 +259,16 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: 
     setVideoReloadKey((k) => k + 1);
   }, []);
 
-  // Keep video muted when agent is selected, unmuted when video is selected.
+  // Keep video muted when agent is selected, unmuted when video is selected. Pause when switching to agent so video doesn't keep running.
   useEffect(() => {
     if (!showEmbeddedVideo || !ytPlayerRef.current) return;
     const p = ytPlayerRef.current;
-    if (audioSource === 'agent') p.mute?.();
-    else p.unMute?.();
+    if (audioSource === 'agent') {
+      p.mute?.();
+      p.pauseVideo?.();
+    } else {
+      p.unMute?.();
+    }
   }, [audioSource, showEmbeddedVideo]);
 
   // Scroll captions to bottom when new content is added (defer so DOM has updated).
@@ -316,7 +320,7 @@ NEW STEP RULE: User just started this step. (1) TIMER: Only suggest a timer when
 
 DO NOT REPEAT: Say the step instruction and any timer or heat suggestion exactly ONCE. Never say the same sentence or phrase twice in a row.
 
-If they say "next" or "next step", you MUST call nextStep(). If they say "previous" or "go back", you MUST call previousStep(). If they ask to go to another step by number, scenario, or time, you MUST call goToStep(index) with the 0-based index from the step list.]`;
+If they say "next" or "next step", you MUST call nextStep(). If they say "previous" or "go back", you MUST call previousStep(). If they say a step number in any language (e.g. "7", "step 7", "payari saat", "7 vr chal"), call goToStep(that number minus 1). Always respond to every voice input; never stay silent.]`;
   }, [recipe.steps, recipe.stepTimestamps, stepsCount]);
 
   const playConfirmationSound = useCallback(() => {
@@ -860,7 +864,9 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
           contextWindowCompression: { slidingWindow: {} },
           systemInstruction: `You are the CookAI Assistant for "${recipe.title}". 
           
-          LANGUAGE: The user may ask or give commands in any language (e.g. Hindi, Spanish). Always understand their intent and carry out the action (next step, pause video, go to step, etc.). Your responses and all speech must be ONLY in ${VOICE_LANGUAGE_OPTIONS.find((o) => o.code === appSettings.voiceLanguage)?.label ?? 'English'}. Do not reply in the user's language—always use ${VOICE_LANGUAGE_OPTIONS.find((o) => o.code === appSettings.voiceLanguage)?.label ?? 'English'} for your output. Recipe steps and UI are in English.
+          LANGUAGE: The user may speak in any language or mix (e.g. English, Hindi, Marathi, "step 7", "payari saat", "7th step vr chal"). ALWAYS interpret intent and act—never ignore or stay silent. Recognize numbers in any form (7, seven, saat, सात, etc.) as step numbers. Your responses and all speech must be ONLY in ${VOICE_LANGUAGE_OPTIONS.find((o) => o.code === appSettings.voiceLanguage)?.label ?? 'English'}. Recipe steps and UI are in English.
+          
+          GO TO STEP BY NUMBER (mixed language): When the user says a step number in any language or mix—e.g. "step 7", "7th step", "go to 7", "payari 7", "saatvan step", "number 7", "7 (saat) step (payari) vr chal", "step saat"—you MUST call goToStep(N-1) where N is that number (goToStep uses 0-based index). Extract the number from speech even if it's in Hindi/Marathi (ek=1, do=2, teen=3, char=4, paanch=5, chhe=6, saat=7, aath=8, nau=9, dus=10). Always respond and call the tool; do not say you didn't understand.
           
           STEP LIST (use the [index] in goToStep(index)—ALWAYS call the tool when changing steps):
           ${recipe.steps.map((s, i) => `[${i}] ${(recipe.stepTimestamps?.[i] ?? '') ? `(${recipe.stepTimestamps[i]}) ` : ''}${s}`).join('\n')}
@@ -868,11 +874,12 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
           STEP NAVIGATION (MANDATORY—you MUST call the tool, not only describe):
           - "next", "next step", "go forward", "what's next" → call nextStep() FIRST (before speaking), then say the new step instruction briefly.
           - "previous", "previous step", "go back", "last step" → call previousStep() FIRST (before speaking), then say the step instruction briefly.
-          - "go to step N", "step N", "what's step N" → call goToStep(N-1) FIRST (step numbers are 1-based; goToStep uses 0-based index).
+          - "go to step N", "step N", "what's step N", or any phrase containing a step number (in English or another language) → call goToStep(N-1) FIRST (step numbers are 1-based; goToStep uses 0-based index). If you hear a number and "step" or "payari" or "vr chal"/"pe jao", treat it as "go to that step".
           - "when do we [X]", "go to [X]", "the part where we [X]", "what about [ingredient/time]" → find the step whose instruction or timestamp matches [X], then call goToStep(index) with that step's index from the list above. Example: "go to when we add spinach" → find the step that mentions adding spinach, get its [index], call goToStep(index).
           - "at 2 minutes", "at 1:30", "what happens at [time]" → find the step with that timestamp (or closest) in the list, call goToStep(index).
           Never only describe a step without calling nextStep, previousStep, or goToStep—the screen and video only update when you call the tool.
-          SPEED: When the user asks to change step (next, previous, go to step N), call the tool IMMEDIATELY at the start of your response—before saying anything. The step indicator must update right away so the user sees the change instantly. Then speak your short confirmation and the instruction.
+          AUDIO/STEP SYNC (CRITICAL): When you call nextStep(), the instruction you speak in the SAME turn must be the instruction of the step you are moving TO (the next step in the STEP LIST—one line down). When you call previousStep(), speak the instruction of the step you are moving back TO (the previous line). When you call goToStep(i), speak the instruction at index [i] in the list. The screen updates as soon as you call the tool—so your spoken instruction must match the step the user will SEE, not the step they were on. This keeps audio and steps in sync.
+          SPEED: When the user asks to change step (next, previous, go to step N), call the tool IMMEDIATELY at the start of your response—before saying anything. The step indicator must update right away so the user sees the change instantly. Then speak your short confirmation and the instruction (for the TARGET step as above).
           ${recipe.videoUrl ? `\nVIDEO: The recipe video starts MUTED in agent mode. User must explicitly ask to unmute (e.g. "unmute the video", "turn on video sound")—then call setVideoMute muted false. Embedded video seeks to the step's timestamp when you call goToStep/nextStep/previousStep. Playback: When the user says "play the video", "start the video", "start video", "play video", "resume", "resume the video", or "play" (meaning the recipe video), you MUST call setVideoPlayback with action "play". For "pause the video", "stop the video", "pause video" → setVideoPlayback "pause" or "stop". Volume: "mute the video" → setVideoMute muted true; "unmute the video", "turn on video sound" → setVideoMute muted false. Audio source: "use video audio" → setAudioSource "video"; "use your voice" → setAudioSource "agent".` : ''}
           
           TIMER & HEAT AT NEW STEP:
@@ -882,14 +889,15 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
           
           CRITICAL SYNC & AUDITORY FEEDBACK RULES:
           1. YOU MUST VERBALLY ANNOUNCE EVERY ACTION. Confirmations are required for starting, pausing, stopping timers, setting temperatures, and moving steps.
-          2. For step changes: call the tool (nextStep/previousStep/goToStep) FIRST—before any speech—so the step indicator updates instantly. Then say "Okay, next step" or "Previous step" or "Going to [that step]" ONCE and state only what to do (the instruction). Do NOT say the step number (e.g. "Step 2") in that same reply.
+          2. For step changes: call the tool (nextStep/previousStep/goToStep) FIRST—before any speech—so the step indicator updates instantly. Then say "Okay, next step" or "Previous step" or "Going to [that step]" ONCE and state only the instruction for the STEP THE USER WILL SEE (the target step after the tool runs). Do NOT say the step number (e.g. "Step 2") in that same reply. Do NOT say the instruction of the step you were on—say the target step's instruction so audio matches the screen.
           3. WHENEVER the user asks to go to any step (by number, by scenario, or by time), call goToStep(index) with the correct 0-based index from the STEP LIST above.
           4. NEVER repeat the step number twice. After calling a step tool, give one short confirmation and only the instruction, e.g. "Okay. Chop the onions."
           5. NEVER say technical indices like "Index 0" to the user. Say "Step 1" only when they ask which step (and say it once).
           6. NEVER repeat yourself: say the step instruction and any timer/heat question exactly once. Do not say the same sentence or phrase twice in a row.
           7. Respond instantly and concisely. One short sentence is better than two. Prioritize speed—like talking to a human in the same room.
           8. If noise is high or you didn't catch what they said, say one quick line only: "Sorry, say that again?" or "What was that?" then wait. Do not elaborate.
-          9. If you're unsure of intent, pick the most likely (e.g. "next" when it's ambiguous) and confirm in one phrase. Don't ask multiple questions.
+          9. If you're unsure of intent, pick the most likely (e.g. "next" when it's ambiguous, or "go to step N" if you heard a number) and confirm in one phrase. Don't ask multiple questions.
+          10. ALWAYS respond to voice input. Never stay silent. If the user said something that sounds like a step number or "step" in any language, call goToStep(index) and confirm. If you heard a number, use it (1-based step → 0-based index = number minus 1).
           
           FINISHING THE RECIPE: When the user says they have finished cooking (e.g. "I'm done", "we're finished", "recipe complete", "all done", "finished"), call finishRecipe() once. Confirm briefly (e.g. "Done! I've updated your inventory.") then the app will exit cooking mode.`,
           outputAudioTranscription: {},
@@ -1157,7 +1165,11 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
           <div className="flex items-center justify-center gap-2">
             <span className="text-stone-400 text-[10px] font-bold uppercase">Listen to:</span>
             <button
-              onClick={() => setAudioSource('agent')}
+              onClick={() => {
+                setAudioSource('agent');
+                ytPlayerRef.current?.pauseVideo?.();
+                ytPlayerRef.current?.mute?.();
+              }}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold ${audioSource === 'agent' ? 'bg-emerald-600 text-white' : 'bg-stone-100 text-stone-500'}`}
             >
               Agent

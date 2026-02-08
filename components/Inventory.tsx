@@ -5,12 +5,14 @@ import { parseGroceryListFromText, parseGroceryListFromImage } from '../services
 
 interface InventoryProps {
   userId: string;
+  /** When set, open on this tab (e.g. 'shopping' when coming from "Want to see shopping list? Yes"). */
+  initialTab?: 'inventory' | 'shopping';
 }
 
 type Tab = 'inventory' | 'shopping';
 
-const Inventory: React.FC<InventoryProps> = ({ userId }) => {
-  const [activeTab, setActiveTab] = useState<Tab>('inventory');
+const Inventory: React.FC<InventoryProps> = ({ userId, initialTab }) => {
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab ?? 'inventory');
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [shoppingList, setShoppingList] = useState<ShoppingListItem[]>([]);
   const [loading, setLoading] = useState(true);
