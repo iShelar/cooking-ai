@@ -506,7 +506,46 @@ const App: React.FC = () => {
     if (!authUser || !sharedRecipe) return;
     setSavingSharedRecipe(true);
     try {
-      const copy: Recipe = { ...sharedRecipe, id: `shared-${Date.now()}` };
+      const userRecipes = await getAllRecipes(authUser.uid);
+
+      const sameContent = (a: Recipe, b: Recipe) =>
+        a.title.trim().toLowerCase() === b.title.trim().toLowerCase() &&
+        a.ingredients.length === b.ingredients.length &&
+        a.steps.length === b.steps.length &&
+        JSON.stringify(a.ingredients) === JSON.stringify(b.ingredients) &&
+        JSON.stringify(a.steps) === JSON.stringify(b.steps);
+
+      let existing: Recipe | undefined =
+        sharedRecipeToken ? userRecipes.find((r) => r.sharedFromToken === sharedRecipeToken) : undefined;
+      if (!existing) {
+        existing = userRecipes.find((r) => sameContent(r, sharedRecipe));
+      }
+
+      if (existing) {
+        setShareToast('Already in your recipes');
+        setTimeout(() => setShareToast(null), 3000);
+        setSharedRecipeToken(null);
+        setSharedRecipe(null);
+        setSharedRecipeError(null);
+        setCurrentView(AppView.Home);
+        setSelectedRecipe(existing);
+        setScaledRecipe(existing);
+        setRecipes((prev) => {
+          const has = prev.some((r) => r.id === existing!.id);
+          return has ? prev : [...prev, existing!];
+        });
+        if (typeof window !== 'undefined' && window.history) {
+          window.history.replaceState({ view: AppView.Home } as HistoryState, '', '/');
+        }
+        setTimeout(() => navigateTo(AppView.RecipeDetail, existing!), 100);
+        return;
+      }
+
+      const copy: Recipe = {
+        ...sharedRecipe,
+        id: `shared-${Date.now()}`,
+        ...(sharedRecipeToken && { sharedFromToken: sharedRecipeToken }),
+      };
       await updateRecipeInDB(authUser.uid, copy);
       setRecipes((prev) => [...prev, copy]);
       setSharedRecipeToken(null);
@@ -524,7 +563,7 @@ const App: React.FC = () => {
     } finally {
       setSavingSharedRecipe(false);
     }
-  }, [authUser, sharedRecipe]);
+  }, [authUser, sharedRecipe, sharedRecipeToken]);
 
   const addRecipeToShoppingList = useCallback(async () => {
     if (!authUser || !selectedRecipe) return;

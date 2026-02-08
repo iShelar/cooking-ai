@@ -28,6 +28,8 @@ export interface Recipe {
   lastPreparedAt?: string;
   /** When the recipe was last viewed (opened detail). ISO date string. */
   lastViewedAt?: string;
+  /** Share token this recipe was saved from; used to avoid duplicate when re-saving same share link. */
+  sharedFromToken?: string;
 }
 
 export interface Ingredient {

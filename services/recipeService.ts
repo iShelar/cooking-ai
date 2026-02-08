@@ -57,6 +57,7 @@ function toFirestoreRecipe(r: Recipe): Record<string, unknown> {
   if (r.videoSegments != null) out.videoSegments = r.videoSegments;
   if (r.lastPreparedAt != null) out.lastPreparedAt = r.lastPreparedAt;
   if (r.lastViewedAt != null) out.lastViewedAt = r.lastViewedAt;
+  if (r.sharedFromToken != null) out.sharedFromToken = r.sharedFromToken;
   return out;
 }
 
@@ -79,5 +80,6 @@ function fromFirestoreRecipe(id: string, data: Record<string, unknown>): Recipe 
   if (Array.isArray(data.videoSegments)) r.videoSegments = data.videoSegments as Recipe['videoSegments'];
   if (typeof data.lastPreparedAt === 'string') r.lastPreparedAt = data.lastPreparedAt;
   if (typeof data.lastViewedAt === 'string') r.lastViewedAt = data.lastViewedAt;
+  if (typeof data.sharedFromToken === 'string') r.sharedFromToken = data.sharedFromToken;
   return r;
 }
