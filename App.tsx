@@ -266,13 +266,15 @@ const App: React.FC = () => {
     if (currentView !== AppView.Inventory) setOpenInventoryOnTab(null);
   }, [currentView]);
 
-  // One-time prompt at start: ask if user wants to use browser language for voice (based on navigator.language).
+  // One-time prompt at start: let user select voice language (default English or browser-detected).
+  const [languagePickerSelectedCode, setLanguagePickerSelectedCode] = useState('en');
   useEffect(() => {
     if (!authChecked || languagePromptCheckedRef.current || hasShownLanguagePrompt()) return;
     if (authUser && isLoading) return;
     languagePromptCheckedRef.current = true;
     const detected = getBrowserVoiceLanguage();
-    if (detected) setLanguagePromptOption(detected);
+    setLanguagePickerSelectedCode(detected?.code ?? 'en');
+    setLanguagePromptOption(detected ?? { code: 'en', label: 'English' });
   }, [authChecked, authUser, isLoading]);
 
   // One-time dietary survey at start (after language prompt is dismissed, or if no language prompt).
@@ -304,21 +306,16 @@ const App: React.FC = () => {
     return () => clearTimeout(t);
   }, [currentView, recipes.length]);
 
-  const handleUseDetectedLanguage = useCallback(() => {
-    if (!languagePromptOption) return;
-    const next = { ...appSettings, voiceLanguage: languagePromptOption.code };
+  const handleLanguagePickerContinue = useCallback(() => {
+    const code = languagePickerSelectedCode || 'en';
+    const next = { ...appSettings, voiceLanguage: code };
     setAppSettings(next);
     if (authUser) {
       saveAppSettings(authUser.uid, next).catch(() => {});
     }
     setLanguagePromptShown();
     setLanguagePromptOption(null);
-  }, [languagePromptOption, appSettings, authUser]);
-
-  const handleKeepCurrentLanguage = useCallback(() => {
-    setLanguagePromptShown();
-    setLanguagePromptOption(null);
-  }, []);
+  }, [languagePickerSelectedCode, appSettings, authUser]);
 
   const handleDietarySurveySave = useCallback(
     async (prefs: UserPreferences) => {
@@ -1143,24 +1140,30 @@ const App: React.FC = () => {
               Voice language
             </h2>
             <p className="text-sm text-stone-600">
-              We detected your browser language as <strong>{languagePromptOption.label}</strong>. Use it for voice responses in cooking mode?
+              Choose the language for voice responses in cooking mode. You can change this later in Settings.
             </p>
-            <div className="flex flex-col gap-2 pt-1">
-              <button
-                type="button"
-                onClick={handleUseDetectedLanguage}
-                className="w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold text-sm active:scale-[0.98] transition-transform"
-              >
-                Use {languagePromptOption.label}
-              </button>
-              <button
-                type="button"
-                onClick={handleKeepCurrentLanguage}
-                className="w-full py-3 rounded-xl bg-stone-100 text-stone-700 font-medium text-sm hover:bg-stone-200 active:scale-[0.98] transition-transform"
-              >
-                No, keep {currentVoiceLabel}
-              </button>
-            </div>
+            <label htmlFor="voice-language-select" className="block text-sm font-medium text-stone-700">
+              Language
+            </label>
+            <select
+              id="voice-language-select"
+              value={languagePickerSelectedCode}
+              onChange={(e) => setLanguagePickerSelectedCode(e.target.value)}
+              className="w-full py-3 px-4 rounded-xl bg-stone-100 border border-stone-200 text-stone-800 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            >
+              {VOICE_LANGUAGE_OPTIONS.map((opt) => (
+                <option key={opt.code} value={opt.code}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={handleLanguagePickerContinue}
+              className="w-full py-3 rounded-xl bg-emerald-600 text-white font-semibold text-sm active:scale-[0.98] transition-transform hover:bg-emerald-700"
+            >
+              Continue
+            </button>
           </div>
         </div>
       )}

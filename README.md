@@ -79,3 +79,4 @@ user will know -> every time show the heat level. -->
 18. Few curated recipes - we will standardize
 19. Feature – When you change ingredients or use something different in a step, the agent will prompt you to save that change as a "memory" for that step. The next time you make a recipe, the agent will remind you of your previous changes. This option will also be available in the instructions before the prepare recipe screen, allowing you to add preferences or changes (as a memory) for specific steps.
 20. Language Selection (Instead of direct detection) -> Detected Language should be default selected.
+21. Reminders based on time or your schedule time for lunch breakfast dinner (meal plans) - Suggestions (based on inventory) - what recipes I liked based on data - cooked recipes, liked recipes, added recipes (keep the priority) (Reminders will be standard for each meal - breakfast, lunch dinner - but user can change that inside the settings)
