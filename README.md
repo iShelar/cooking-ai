@@ -66,7 +66,7 @@ The app is set up as a PWA so users can install it on their phone or desktop (Ad
 8. Voice command - fully automate
 <!-- 9. Voice icon - sticky on corner. -->
 <!-- 10. Once done - we will use inventory items and save it at end. -->
-11. Bugs - on mobile device - not able to start the video using voice.
+<!-- 11. Bugs - on mobile device - not able to start the video using voice. -->
 <!-- 12. Generate recipes using prompt. -->
 <!-- 13. Fix youtube recipe generation flow. -->
 <!-- 14. Prompt user if they wanna change the laguage or not. -->
@@ -78,3 +78,4 @@ in Firebase Storage, and links it to the recipe in the DB. -->
 user will know -> every time show the heat level. -->
 18. Few curated recipes - we will standardize
 19. Feature – When you change ingredients or use something different in a step, the agent will prompt you to save that change as a "memory" for that step. The next time you make a recipe, the agent will remind you of your previous changes. This option will also be available in the instructions before the prepare recipe screen, allowing you to add preferences or changes (as a memory) for specific steps.
+20. Language Selection (Instead of direct detection) -> Detected Language should be default selected.

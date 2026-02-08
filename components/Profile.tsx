@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { User } from 'firebase/auth';
-import { reauthenticate, updateUserPassword, signOut } from '../services/authService';
+import { reauthenticate, updateUserPassword, signOut, sendVerificationEmail } from '../services/authService';
 
 interface ProfileProps {
   user: User;
@@ -16,6 +16,9 @@ const Profile: React.FC<ProfileProps> = ({ user, onBack, onOpenSettings }) => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const [verifyLoading, setVerifyLoading] = useState(false);
+  const [verifySent, setVerifySent] = useState(false);
+  const needsVerification = Boolean(user.email && !user.emailVerified);
 
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,6 +53,21 @@ const Profile: React.FC<ProfileProps> = ({ user, onBack, onOpenSettings }) => {
     await signOut();
   };
 
+  const handleResendVerification = async () => {
+    setError('');
+    setVerifySent(false);
+    setVerifyLoading(true);
+    try {
+      await sendVerificationEmail();
+      setVerifySent(true);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Could not send. Try again later.';
+      setError(message);
+    } finally {
+      setVerifyLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#fcfcf9] pb-24">
       <header className="px-6 pt-8 pb-6 flex items-center gap-4">
@@ -65,11 +83,29 @@ const Profile: React.FC<ProfileProps> = ({ user, onBack, onOpenSettings }) => {
       </header>
 
       <div className="px-6 space-y-6">
+        {needsVerification && (
+          <section className="bg-amber-50 rounded-2xl p-4 border border-amber-200">
+            <p className="text-amber-800 text-sm font-medium mb-1">Email not verified</p>
+            <p className="text-amber-700 text-sm mb-3">Verify your email to secure your account. Check your inbox and spam folder for the link.</p>
+            <button
+              type="button"
+              onClick={handleResendVerification}
+              disabled={verifyLoading || verifySent}
+              className="text-amber-800 font-semibold text-sm underline hover:no-underline disabled:opacity-60 disabled:no-underline"
+            >
+              {verifyLoading ? 'Sending...' : verifySent ? 'Email sent — check inbox and spam' : 'Resend verification email'}
+            </button>
+          </section>
+        )}
+
         <section className="bg-white rounded-2xl p-6 shadow-sm border border-stone-100">
           <h2 className="text-sm font-semibold text-stone-400 uppercase tracking-wider mb-3">Account</h2>
           <div className="space-y-2">
             <p className="text-stone-500 text-sm">Email</p>
             <p className="text-stone-800 font-medium">{user.email ?? '—'}</p>
+            {needsVerification && (
+              <p className="text-amber-600 text-xs font-medium">Not verified</p>
+            )}
           </div>
         </section>
 

@@ -8,6 +8,7 @@ import {
   reauthenticateWithCredential,
   EmailAuthProvider,
   updatePassword,
+  sendEmailVerification,
   User,
   UserCredential,
 } from 'firebase/auth';
@@ -16,8 +17,15 @@ import { auth } from './firebase';
 /** Fixed UID used when signing in as shared guest (custom token). Must match the UID your backend uses in createCustomToken(uid). */
 export const SHARED_GUEST_UID = 'guest';
 
-export function signUp(email: string, password: string): Promise<UserCredential> {
-  return createUserWithEmailAndPassword(auth, email, password);
+/**
+ * Sign up with email and password. Signs out immediately so the app never flashes
+ * to the main screen, then sends the verification email (works with user reference after sign out).
+ */
+export async function signUp(email: string, password: string): Promise<{ email: string }> {
+  const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+  await firebaseSignOut(auth);
+  await sendEmailVerification(userCredential.user);
+  return { email };
 }
 
 export function signIn(email: string, password: string): Promise<UserCredential> {
@@ -72,8 +80,23 @@ export function signOut(): Promise<void> {
   return firebaseSignOut(auth);
 }
 
+/** Subscribe to auth state. Email/password users must be verified; unverified users are signed out so they cannot access the app. */
 export function subscribeToAuthState(callback: (user: User | null) => void): () => void {
-  return onAuthStateChanged(auth, callback);
+  return onAuthStateChanged(auth, (user) => {
+    if (user?.email && !user.emailVerified) {
+      firebaseSignOut(auth);
+      callback(null);
+      return;
+    }
+    callback(user);
+  });
+}
+
+/** Send verification email to the current user (e.g. for existing unverified accounts). */
+export function sendVerificationEmail(): Promise<void> {
+  const user = auth.currentUser;
+  if (!user?.email) throw new Error('No email account to verify.');
+  return sendEmailVerification(user);
 }
 
 /** Re-authenticate with current password (required before updating password). */
