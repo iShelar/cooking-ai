@@ -44,6 +44,22 @@ To use **Create from YouTube** (turn a cooking video into a recipe you can follo
 
 From a recipe’s detail screen, tap **Share** (icon in the header). The app creates a link and copies it to the clipboard. Anyone with the link can open the recipe (read-only) and, if signed in, tap **Save to my recipes** to add a copy to their collection. Shared data is stored in the `sharedRecipes` Firestore collection (see [firestore.rules](firestore.rules)). When deploying, ensure your host serves the app’s `index.html` for paths under `/share/*` (SPA fallback) so share links work.
 
+## Push notifications (meal reminders)
+
+Users can enable **push notifications** in **Settings → Notifications** to receive meal reminders and recipe suggestions when the app is closed.
+
+**Setup:**
+
+1. **Firebase Cloud Messaging (FCM):** In [Firebase Console](https://console.firebase.google.com) → your project → **Project settings** → **Cloud Messaging** → **Web Push certificates**, generate a key pair and copy the key.
+2. **Env:** In `.env.local` add:
+   - `VITE_FIREBASE_VAPID_KEY=<your Web Push key>`
+   (Use the same `VITE_FIREBASE_*` vars as the app so `public/firebase-messaging-sw.js` is generated with your config.)
+3. **Build:** Run `yarn build` (or `npm run build`). The `prebuild` step generates `public/firebase-messaging-sw.js` from your Firebase env vars.
+4. **Netlify (scheduled function):** Set `FIREBASE_SERVICE_ACCOUNT_JSON` in the Netlify dashboard (same as for share links). The `meal-reminder` function runs every 15 minutes (UTC) and sends a push to users whose current time is within their breakfast/lunch/dinner reminder window (Settings → Meal reminders). The notification includes up to 2 suggested recipe names based on their inventory.
+5. **Firestore rules:** Deploy [firestore.rules](firestore.rules) so the `pushSubscriptions` collection allows each user to read/write only their own document.
+
+Reminder times are configurable in **Settings → Meal reminders**. Notifications are only sent when the user has enabled push and their FCM token is stored.
+
 ## PWA (Progressive Web App)
 
 The app is set up as a PWA so users can install it on their phone or desktop (Add to Home Screen / Install app).
@@ -78,5 +94,5 @@ in Firebase Storage, and links it to the recipe in the DB. -->
 user will know -> every time show the heat level. -->
 18. Few curated recipes - we will standardize
 19. Feature – When you change ingredients or use something different in a step, the agent will prompt you to save that change as a "memory" for that step. The next time you make a recipe, the agent will remind you of your previous changes. This option will also be available in the instructions before the prepare recipe screen, allowing you to add preferences or changes (as a memory) for specific steps.
-20. Language Selection (Instead of direct detection) -> Detected Language should be default selected.
+<!-- 20. Language Selection (Instead of direct detection) -> Detected Language should be default selected. -->
 21. Reminders based on time or your schedule time for lunch breakfast dinner (meal plans) - Suggestions (based on inventory) - what recipes I liked based on data - cooked recipes, liked recipes, added recipes (keep the priority) (Reminders will be standard for each meal - breakfast, lunch dinner - but user can change that inside the settings)

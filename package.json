@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "prebuild": "node scripts/generate-firebase-messaging-sw.mjs",
     "preview": "vite preview",
     "generate-pwa-icons": "node scripts/generate-pwa-icons.mjs"
   },

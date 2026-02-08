@@ -10,9 +10,18 @@ const DIFFICULTY_STYLES: Record<Recipe['difficulty'], string> = {
 interface RecipeCardProps {
   recipe: Recipe;
   onClick: (recipe: Recipe) => void;
+  /** When true, show heart as filled (liked). */
+  isLiked?: boolean;
+  /** Called when user toggles like; pass (e) => e.stopPropagation() from parent if needed. */
+  onToggleLike?: (recipe: Recipe, e: React.MouseEvent) => void;
 }
 
-const RecipeCard: React.FC<RecipeCardProps> = ({ recipe, onClick }) => {
+const RecipeCard: React.FC<RecipeCardProps> = ({ recipe, onClick, isLiked, onToggleLike }) => {
+  const handleLikeClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onToggleLike?.(recipe, e);
+  };
+
   return (
     <button
       type="button"
@@ -26,6 +35,19 @@ const RecipeCard: React.FC<RecipeCardProps> = ({ recipe, onClick }) => {
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent pointer-events-none" />
+        {onToggleLike && (
+          <button
+            type="button"
+            onClick={handleLikeClick}
+            className="absolute top-2 left-2 p-1.5 rounded-full bg-white/90 backdrop-blur-sm text-stone-600 hover:bg-white shadow-sm z-10"
+            aria-label={isLiked ? 'Unlike recipe' : 'Like recipe'}
+            title={isLiked ? 'Unlike' : 'Like'}
+          >
+            <svg className="w-5 h-5" fill={isLiked ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+            </svg>
+          </button>
+        )}
         <span
           className={`absolute top-2 right-2 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${DIFFICULTY_STYLES[recipe.difficulty]}`}
         >

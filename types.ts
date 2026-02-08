@@ -45,6 +45,8 @@ export interface UserPreferences {
   /** Free-form substitutions, e.g. "oat milk instead of dairy", "gluten-free pasta" */
   alternatives?: string[];
   skillLevel: 'Beginner' | 'Intermediate' | 'Advanced';
+  /** Recipe IDs the user has liked (for suggestions priority). */
+  likedRecipeIds?: string[];
 }
 
 /** Common options for dietary survey and settings. */
@@ -202,6 +204,12 @@ export interface AppSettings {
   defaultServings: number;
   /** Play sound for timer finish. */
   timerSound: boolean;
+  /** Meal reminder times (HH:mm, 24h). User can change in Settings. */
+  breakfastReminderTime: string;
+  lunchReminderTime: string;
+  dinnerReminderTime: string;
+  /** FCM token for push notifications (meal/suggestion reminders). Set when user enables notifications. */
+  fcmToken?: string;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -211,10 +219,14 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   hapticFeedback: true,
   defaultServings: 2,
   timerSound: true,
+  breakfastReminderTime: '08:00',
+  lunchReminderTime: '13:00',
+  dinnerReminderTime: '19:00',
 };
 
 export enum AppView {
   Home = 'home',
+  Suggestions = 'suggestions',
   RecipeDetail = 'recipe-detail',
   RecipeSetup = 'recipe-setup',
   CookingMode = 'cooking-mode',

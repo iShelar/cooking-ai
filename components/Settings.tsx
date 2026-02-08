@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AppSettings, DEFAULT_APP_SETTINGS, VOICE_LANGUAGE_OPTIONS, type UserPreferences, DIETARY_OPTIONS, ALLERGY_OPTIONS } from '../types';
 import { getAppSettings, saveAppSettings, getPreferences, savePreferences } from '../services/dbService';
+import { isPushSupported, enablePushNotifications, disablePushNotifications } from '../services/notificationService';
 
 interface SettingsProps {
   userId: string;
@@ -24,6 +25,9 @@ const Settings: React.FC<SettingsProps> = ({ userId, onBack, onSaved, onPreferen
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [alternativesText, setAlternativesText] = useState('');
+  const [pushSupported, setPushSupported] = useState<boolean | null>(null);
+  const [pushToggling, setPushToggling] = useState(false);
+  const [pushError, setPushError] = useState<string | null>(null);
 
   const loadSettings = async () => {
     setLoadError(null);
@@ -48,6 +52,10 @@ const Settings: React.FC<SettingsProps> = ({ userId, onBack, onSaved, onPreferen
   useEffect(() => {
     loadSettings();
   }, [userId]);
+
+  useEffect(() => {
+    isPushSupported().then(setPushSupported);
+  }, []);
 
   const saveSettings = async (newSettings: AppSettings) => {
     setSaving(true);
@@ -101,6 +109,32 @@ const Settings: React.FC<SettingsProps> = ({ userId, onBack, onSaved, onPreferen
     const alternatives = alternativesText.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
     savePrefs({ ...preferences, alternatives: alternatives.length > 0 ? alternatives : undefined });
     setPreferences((p) => ({ ...p, alternatives: alternatives.length > 0 ? alternatives : undefined }));
+  };
+
+  const pushEnabled = Boolean(settings.fcmToken?.trim());
+
+  const handlePushToggle = async (enable: boolean) => {
+    setPushError(null);
+    setPushToggling(true);
+    try {
+      if (enable) {
+        const token = await enablePushNotifications(userId);
+        if (token) {
+          setSettings((prev) => ({ ...prev, fcmToken: token }));
+          onSaved?.({ ...settings, fcmToken: token });
+        } else {
+          setPushError('Permission denied or could not get token.');
+        }
+      } else {
+        await disablePushNotifications(userId);
+        setSettings((prev) => ({ ...prev, fcmToken: undefined }));
+        onSaved?.({ ...settings, fcmToken: undefined });
+      }
+    } catch (err) {
+      setPushError(err instanceof Error ? err.message : 'Could not update notifications.');
+    } finally {
+      setPushToggling(false);
+    }
   };
 
   if (loading) {
@@ -213,6 +247,78 @@ const Settings: React.FC<SettingsProps> = ({ userId, onBack, onSaved, onPreferen
             </div>
           </div>
         </section>
+
+        <section className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
+          <h2 className="text-sm font-semibold text-stone-400 uppercase tracking-wider px-6 py-3 border-b border-stone-100">
+            Meal reminders
+          </h2>
+          <p className="px-6 py-2 text-sm text-stone-500">Default times for breakfast, lunch, and dinner. Suggestions and reminders use these.</p>
+          <div className="divide-y divide-stone-100">
+            <div className="px-6 py-4 flex items-center justify-between gap-4">
+              <div>
+                <p className="font-medium text-stone-800">Breakfast</p>
+                <p className="text-sm text-stone-500">Reminder time</p>
+              </div>
+              <input
+                type="time"
+                value={settings.breakfastReminderTime}
+                onChange={(e) => update({ breakfastReminderTime: e.target.value })}
+                className="bg-stone-100 rounded-xl py-2 px-4 text-sm font-medium text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+            <div className="px-6 py-4 flex items-center justify-between gap-4">
+              <div>
+                <p className="font-medium text-stone-800">Lunch</p>
+                <p className="text-sm text-stone-500">Reminder time</p>
+              </div>
+              <input
+                type="time"
+                value={settings.lunchReminderTime}
+                onChange={(e) => update({ lunchReminderTime: e.target.value })}
+                className="bg-stone-100 rounded-xl py-2 px-4 text-sm font-medium text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+            <div className="px-6 py-4 flex items-center justify-between gap-4">
+              <div>
+                <p className="font-medium text-stone-800">Dinner</p>
+                <p className="text-sm text-stone-500">Reminder time</p>
+              </div>
+              <input
+                type="time"
+                value={settings.dinnerReminderTime}
+                onChange={(e) => update({ dinnerReminderTime: e.target.value })}
+                className="bg-stone-100 rounded-xl py-2 px-4 text-sm font-medium text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+          </div>
+        </section>
+
+        {pushSupported === true && (
+          <section className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
+            <h2 className="text-sm font-semibold text-stone-400 uppercase tracking-wider px-6 py-3 border-b border-stone-100">
+              Notifications
+            </h2>
+            <p className="px-6 py-2 text-sm text-stone-500">Get meal reminders and recipe suggestions even when the app is closed.</p>
+            {pushError && (
+              <div className="mx-6 mb-2 p-3 bg-amber-50 border border-amber-100 rounded-xl text-amber-800 text-sm">{pushError}</div>
+            )}
+            <div className="divide-y divide-stone-100">
+              <label className="px-6 py-4 flex items-center justify-between cursor-pointer gap-4">
+                <div>
+                  <p className="font-medium text-stone-800">Push notifications</p>
+                  <p className="text-sm text-stone-500">Meal reminders and suggestions</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={pushEnabled}
+                  disabled={pushToggling || pushSupported !== true}
+                  onChange={(e) => handlePushToggle(e.target.checked)}
+                  className="w-11 h-6 rounded-full accent-emerald-500 cursor-pointer flex-shrink-0 disabled:opacity-60"
+                />
+              </label>
+            </div>
+          </section>
+        )}
 
         <section className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
           <h2 className="text-sm font-semibold text-stone-400 uppercase tracking-wider px-6 py-3 border-b border-stone-100">

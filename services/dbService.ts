@@ -33,6 +33,7 @@ export const getPreferences = async (userId: string): Promise<UserPreferences | 
       allergies: Array.isArray(data?.allergies) ? data.allergies : [],
       alternatives: Array.isArray(data?.alternatives) ? data.alternatives : undefined,
       skillLevel: (data?.skillLevel as UserPreferences['skillLevel']) ?? 'Beginner',
+      likedRecipeIds: Array.isArray(data?.likedRecipeIds) ? data.likedRecipeIds : undefined,
     };
   } catch (err) {
     console.warn('Firestore getPreferences failed:', err);
@@ -50,6 +51,9 @@ export const savePreferences = async (userId: string, prefs: UserPreferences): P
   };
   if (prefs.alternatives !== undefined && prefs.alternatives !== null) {
     data.alternatives = prefs.alternatives;
+  }
+  if (prefs.likedRecipeIds !== undefined && Array.isArray(prefs.likedRecipeIds)) {
+    data.likedRecipeIds = prefs.likedRecipeIds;
   }
   await setDoc(ref, data, { merge: true });
 };
@@ -69,6 +73,10 @@ export const getAppSettings = async (userId: string): Promise<AppSettings> => {
       hapticFeedback: typeof data?.hapticFeedback === 'boolean' ? data.hapticFeedback : DEFAULT_APP_SETTINGS.hapticFeedback,
       defaultServings: typeof data?.defaultServings === 'number' ? data.defaultServings : DEFAULT_APP_SETTINGS.defaultServings,
       timerSound: typeof data?.timerSound === 'boolean' ? data.timerSound : DEFAULT_APP_SETTINGS.timerSound,
+      breakfastReminderTime: typeof data?.breakfastReminderTime === 'string' ? data.breakfastReminderTime : DEFAULT_APP_SETTINGS.breakfastReminderTime,
+      lunchReminderTime: typeof data?.lunchReminderTime === 'string' ? data.lunchReminderTime : DEFAULT_APP_SETTINGS.lunchReminderTime,
+      dinnerReminderTime: typeof data?.dinnerReminderTime === 'string' ? data.dinnerReminderTime : DEFAULT_APP_SETTINGS.dinnerReminderTime,
+      fcmToken: typeof data?.fcmToken === 'string' ? data.fcmToken : undefined,
     };
   } catch (err) {
     console.warn('Firestore getAppSettings failed:', err);
@@ -78,7 +86,24 @@ export const getAppSettings = async (userId: string): Promise<AppSettings> => {
 
 export const saveAppSettings = async (userId: string, settings: AppSettings): Promise<void> => {
   const ref = doc(db, 'users', userId, 'appSettings', 'user');
-  await setDoc(ref, settings, { merge: true });
+  const data: Record<string, unknown> = { ...settings };
+  if (settings.fcmToken === undefined) delete data.fcmToken;
+  await setDoc(ref, data, { merge: true });
+};
+
+/** Push subscriptions: pushSubscriptions/{userId} — used by scheduled function to list users to notify. */
+const PUSH_SUBSCRIPTIONS_COLLECTION = 'pushSubscriptions';
+
+/** Save FCM token for push notifications (writes appSettings + pushSubscriptions so cron can list subscribers). */
+export const saveFcmToken = async (userId: string, fcmToken: string | null): Promise<void> => {
+  const appRef = doc(db, 'users', userId, 'appSettings', 'user');
+  await setDoc(appRef, { fcmToken: fcmToken ?? null }, { merge: true });
+  const pushRef = doc(db, PUSH_SUBSCRIPTIONS_COLLECTION, userId);
+  if (fcmToken) {
+    await setDoc(pushRef, { fcmToken, updatedAt: new Date().toISOString() }, { merge: true });
+  } else {
+    await setDoc(pushRef, { fcmToken: null, updatedAt: new Date().toISOString() }, { merge: true });
+  }
 };
 
 /** Normalize item name for matching (trim, lowercase). */

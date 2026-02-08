@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AppView, Recipe, AppSettings, DEFAULT_APP_SETTINGS, VOICE_LANGUAGE_OPTIONS, getBrowserVoiceLanguage, hasShownLanguagePrompt, setLanguagePromptShown, hasShownDietarySurvey, setDietarySurveyShown, hasShownRecipeOnboardingTip, setRecipeOnboardingTipShown, hasShownAddRecipeButtonTutorial, setAddRecipeButtonTutorialShown } from './types';
-import type { UserPreferences } from './types';
+import type { UserPreferences, InventoryItem } from './types';
 import RecipeCard from './components/RecipeCard';
 import CookingMode from './components/CookingMode';
 import RecipeSetup from './components/RecipeSetup';
@@ -18,6 +18,7 @@ import { DEFAULT_RECIPE_IMAGE, MOCK_RECIPES } from './constants';
 import { getAllRecipes, getAppSettings, saveAppSettings, getPreferences, savePreferences, updateRecipeInDB, deleteRecipeInDB, getInventory, addShoppingListItems } from './services/dbService';
 import { createShare, getSharedRecipe } from './services/shareService';
 import { getMissingIngredientsForRecipe } from './services/shoppingListService';
+import { getSuggestedRecipes } from './services/suggestionsService';
 import { subscribeToAuthState } from './services/authService';
 import type { User } from 'firebase/auth';
 
@@ -63,6 +64,13 @@ const App: React.FC = () => {
   const [shoppingListAdding, setShoppingListAdding] = useState(false);
   /** User dietary/allergy preferences (loaded with app data). */
   const [userPreferences, setUserPreferences] = useState<UserPreferences | null>(null);
+  /** Inventory (for suggestions by “what you have”). */
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  /** In-app meal reminder message (e.g. "Time for breakfast! Check suggestions."). */
+  const [mealReminderToast, setMealReminderToast] = useState<string | null>(null);
+  const mealReminderShownRef = useRef<Record<string, boolean>>({});
+  /** Suggestion count when user last opened the Suggestions screen; badge clears when they view it and reappears when count exceeds this. */
+  const suggestionsCountWhenLastViewedRef = useRef<number>(0);
   /** Show one-time dietary survey (after language prompt if that was shown). */
   const [showDietarySurvey, setShowDietarySurvey] = useState(false);
   const dietarySurveyCheckedRef = useRef(false);
@@ -112,6 +120,8 @@ const App: React.FC = () => {
         setScaledRecipe(null);
         setAppSettings(DEFAULT_APP_SETTINGS);
         setUserPreferences(null);
+        setInventory([]);
+        setMealReminderToast(null);
         if (!isShareLink) setCurrentView(AppView.Home);
         setLoadError(null);
         setSearchQuery('');
@@ -164,14 +174,16 @@ const App: React.FC = () => {
     setIsLoading(true);
     try {
       const uid = authUser.uid;
-      const [dbRecipes, dbSettings, dbPrefs] = await Promise.all([
+      const [dbRecipes, dbSettings, dbPrefs, dbInventory] = await Promise.all([
         getAllRecipes(uid),
         getAppSettings(uid),
         getPreferences(uid),
+        getInventory(uid),
       ]);
       setRecipes(dbRecipes);
       setAppSettings(dbSettings);
       setUserPreferences(dbPrefs);
+      setInventory(dbInventory);
     } catch (err) {
       const message = err instanceof Error ? err.message : "We couldn't load your recipes. Give it another try!";
       setLoadError(message);
@@ -195,7 +207,7 @@ const App: React.FC = () => {
     if (recipe) {
       setSelectedRecipe(recipe);
       setScaledRecipe(recipe);
-    } else if (view === AppView.Home || view === AppView.Inventory || view === AppView.Profile || view === AppView.Settings || view === AppView.CreateFromYouTube || view === AppView.CreateFromChat || view === AppView.Scanner) {
+    } else if (view === AppView.Home || view === AppView.Suggestions || view === AppView.Inventory || view === AppView.Profile || view === AppView.Settings || view === AppView.CreateFromYouTube || view === AppView.CreateFromChat || view === AppView.Scanner) {
       setSelectedRecipe(null);
       setScaledRecipe(null);
     }
@@ -265,6 +277,52 @@ const App: React.FC = () => {
   useEffect(() => {
     if (currentView !== AppView.Inventory) setOpenInventoryOnTab(null);
   }, [currentView]);
+
+  // Meal reminders: show in-app toast when current time is within 15 min of breakfast/lunch/dinner (once per meal per day).
+  useEffect(() => {
+    if (!authUser || !appSettings) return;
+    const check = () => {
+      const now = new Date();
+      const dateKey = now.toISOString().slice(0, 10);
+      const hour = now.getHours();
+      const min = now.getMinutes();
+      const currentMinutes = hour * 60 + min;
+
+      const parseTime = (t: string): number => {
+        const [h, m] = (t || '00:00').split(':').map(Number);
+        return (h ?? 0) * 60 + (m ?? 0);
+      };
+
+      const win = 15;
+      const meals: { key: string; time: string; label: string }[] = [
+        { key: 'breakfast', time: appSettings.breakfastReminderTime, label: 'Breakfast' },
+        { key: 'lunch', time: appSettings.lunchReminderTime, label: 'Lunch' },
+        { key: 'dinner', time: appSettings.dinnerReminderTime, label: 'Dinner' },
+      ];
+
+      for (const { key, time, label } of meals) {
+        const target = parseTime(time);
+        if (currentMinutes >= target && currentMinutes < target + win) {
+          const refKey = `${dateKey}-${key}`;
+          if (!mealReminderShownRef.current[refKey]) {
+            mealReminderShownRef.current[refKey] = true;
+            setMealReminderToast(`Time for ${label.toLowerCase()}! Check suggestions.`);
+            return;
+          }
+        }
+      }
+    };
+    check();
+    const interval = setInterval(check, 60 * 1000);
+    const onFocus = () => {
+      if (document.visibilityState === 'visible') check();
+    };
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [authUser, appSettings?.breakfastReminderTime, appSettings?.lunchReminderTime, appSettings?.dinnerReminderTime]);
 
   // One-time prompt at start: let user select voice language (default English or browser-detected).
   const [languagePickerSelectedCode, setLanguagePickerSelectedCode] = useState('en');
@@ -387,6 +445,31 @@ const App: React.FC = () => {
     }
     navigateTo(AppView.RecipeDetail, updated);
   };
+
+  const handleToggleLike = useCallback(
+    (recipe: Recipe) => {
+      if (!authUser || !userPreferences) return;
+      const current = userPreferences.likedRecipeIds ?? [];
+      const isLiked = current.includes(recipe.id);
+      const nextIds = isLiked ? current.filter((id) => id !== recipe.id) : [...current, recipe.id];
+      const next: UserPreferences = { ...userPreferences, likedRecipeIds: nextIds };
+      setUserPreferences(next);
+      savePreferences(authUser.uid, next).catch(() => {});
+    },
+    [authUser, userPreferences]
+  );
+
+  const suggestedRecipes = useMemo(
+    () => getSuggestedRecipes(recipes, userPreferences?.likedRecipeIds ?? [], inventory),
+    [recipes, userPreferences?.likedRecipeIds, inventory]
+  );
+
+  // Clear notification badge when user opens the Suggestions screen (mark current count as seen).
+  useEffect(() => {
+    if (currentView === AppView.Suggestions) {
+      suggestionsCountWhenLastViewedRef.current = suggestedRecipes.length;
+    }
+  }, [currentView, suggestedRecipes.length]);
 
   const goToSetup = () => {
     if (selectedRecipe) navigateTo(AppView.RecipeSetup, selectedRecipe);
@@ -714,9 +797,29 @@ const App: React.FC = () => {
 
   const renderHome = () => (
     <div className="space-y-8 pb-24">
-      <header className="px-6 pt-8 space-y-1">
-        <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Hello, Chef!</h1>
-        <p className="text-stone-500 text-sm">What are we cooking today?</p>
+      <header className="px-6 pt-8 flex items-start justify-between gap-4">
+        <div className="space-y-1 min-w-0">
+          <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Hello, Chef!</h1>
+          <p className="text-stone-500 text-sm">What are we cooking today?</p>
+        </div>
+        {authUser && (
+          <button
+            type="button"
+            onClick={() => navigateTo(AppView.Suggestions)}
+            className="flex-shrink-0 p-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-600 transition-colors relative"
+            aria-label="Suggestions and notifications"
+            title="Suggestions"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+            </svg>
+            {suggestedRecipes.length > suggestionsCountWhenLastViewedRef.current && (
+              <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-white">
+                {suggestedRecipes.length > 9 ? '9+' : suggestedRecipes.length}
+              </span>
+            )}
+          </button>
+        )}
       </header>
 
       {recipes.length > 0 && (
@@ -874,7 +977,13 @@ const App: React.FC = () => {
             </div>
             <div className="grid grid-cols-2 md:grid-cols-2 gap-3">
               {filteredRecipes.map(recipe => (
-                <RecipeCard key={recipe.id} recipe={recipe} onClick={handleRecipeClick} />
+                <RecipeCard
+                  key={recipe.id}
+                  recipe={recipe}
+                  onClick={handleRecipeClick}
+                  isLiked={userPreferences?.likedRecipeIds?.includes(recipe.id)}
+                  onToggleLike={authUser ? (r) => handleToggleLike(r) : undefined}
+                />
               ))}
             </div>
             {searchQuery.trim() && filteredRecipes.length === 0 && (
@@ -883,6 +992,47 @@ const App: React.FC = () => {
           </>
         )}
       </section>
+    </div>
+  );
+
+  const renderSuggestions = () => (
+    <div className="bg-white min-h-screen pb-24 animate-in fade-in duration-300">
+      <header className="px-6 pt-8 pb-6 flex items-center justify-between border-b border-stone-100">
+        <button
+          type="button"
+          onClick={() => navigateTo(AppView.Home)}
+          className="p-2 -ml-2 rounded-xl text-stone-600 hover:bg-stone-100"
+          aria-label="Back to home"
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <h1 className="text-xl font-bold text-stone-800 tracking-tight">Suggestions</h1>
+        <span className="w-10" aria-hidden />
+      </header>
+      <div className="px-6 py-4">
+        <p className="text-stone-500 text-sm mb-6">
+          Recipes you can make with ingredients in your inventory. Like ones you enjoy — we’ll suggest more like them.
+        </p>
+        {suggestedRecipes.length === 0 ? (
+          <p className="text-stone-400 text-sm py-8 text-center">
+            No suggestions right now. Add ingredients to your inventory and add recipes — we’ll suggest recipes that use what you have. Like recipes to get more tailored suggestions.
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            {suggestedRecipes.map((recipe) => (
+              <RecipeCard
+                key={recipe.id}
+                recipe={recipe}
+                onClick={handleRecipeClick}
+                isLiked={userPreferences?.likedRecipeIds?.includes(recipe.id)}
+                onToggleLike={authUser ? (r) => handleToggleLike(r) : undefined}
+              />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 
@@ -903,13 +1053,28 @@ const App: React.FC = () => {
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
             </button>
-            <button
-              onClick={handleShareRecipe}
-              className="p-2 bg-white/90 backdrop-blur-sm rounded-xl text-stone-800 shadow-md hover:bg-white"
-              title="Share recipe"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
-            </button>
+            <div className="flex items-center gap-2">
+              {authUser && (
+                <button
+                  type="button"
+                  onClick={() => handleToggleLike(selectedRecipe)}
+                  className="p-2 bg-white/90 backdrop-blur-sm rounded-xl text-stone-800 shadow-md hover:bg-white"
+                  aria-label={userPreferences?.likedRecipeIds?.includes(selectedRecipe.id) ? 'Unlike recipe' : 'Like recipe'}
+                  title={userPreferences?.likedRecipeIds?.includes(selectedRecipe.id) ? 'Unlike' : 'Like'}
+                >
+                  <svg className="w-6 h-6" fill={userPreferences?.likedRecipeIds?.includes(selectedRecipe.id) ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                  </svg>
+                </button>
+              )}
+              <button
+                onClick={handleShareRecipe}
+                className="p-2 bg-white/90 backdrop-blur-sm rounded-xl text-stone-800 shadow-md hover:bg-white"
+                title="Share recipe"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1088,6 +1253,12 @@ const App: React.FC = () => {
             {shoppingListToast}
           </div>
         )}
+        {mealReminderToast && (
+          <div className="fixed left-4 right-4 top-[calc(env(safe-area-inset-top)+0.5rem)] z-[60] flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-emerald-600 text-white text-sm font-medium shadow-lg">
+            <span>{mealReminderToast}</span>
+            <button type="button" onClick={() => setMealReminderToast(null)} className="p-1 rounded-lg hover:bg-white/20" aria-label="Dismiss">×</button>
+          </div>
+        )}
         {showShoppingListPrompt && (
           <div className="fixed left-1/2 -translate-x-1/2 z-[60] max-w-md w-[calc(100%-2rem)] px-4 py-3 rounded-xl bg-stone-800 text-white shadow-lg flex items-center justify-between gap-3" style={{ bottom: 'calc(6rem + env(safe-area-inset-bottom))' }}>
             <span className="text-sm font-medium">Want to see shopping list?</span>
@@ -1177,6 +1348,11 @@ const App: React.FC = () => {
       {currentView === AppView.Home && (
         <ErrorBoundary>
           {renderHome()}
+        </ErrorBoundary>
+      )}
+      {currentView === AppView.Suggestions && authUser && (
+        <ErrorBoundary onReset={() => setCurrentView(AppView.Home)}>
+          {renderSuggestions()}
         </ErrorBoundary>
       )}
       {currentView === AppView.RecipeDetail && (
