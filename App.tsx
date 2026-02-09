@@ -107,6 +107,16 @@ const App: React.FC = () => {
     }
   }, []);
 
+  // When opened from meal reminder notification (?open=suggestions), show Suggestions view once user is logged in.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !authUser || !authChecked) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('open') !== 'suggestions') return;
+    setCurrentView(AppView.Suggestions);
+    const cleanUrl = window.location.pathname || '/';
+    window.history.replaceState({ view: AppView.Suggestions }, '', cleanUrl);
+  }, [authUser, authChecked]);
+
   useEffect(() => {
     const unsubscribe = subscribeToAuthState((user) => {
       setAuthUser(user);

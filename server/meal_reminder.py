@@ -185,7 +185,8 @@ async def _run_meal_reminders(override_utc_minutes: Optional[int] = None) -> dic
             titles = _get_suggested_recipe_titles(recipes, liked_recipe_ids, inventory_names, 2)
             body = f"Suggested: {', '.join(titles)}" if titles else "Check your recipe suggestions."
 
-            # Send FCM push notification (link must be a full HTTPS URL)
+            # Send FCM push notification (link must be a full HTTPS URL). Open suggestions when clicked.
+            suggestions_url = f"{APP_BASE_URL}/?open=suggestions"
             message = messaging.Message(
                 token=fcm_token,
                 notification=messaging.Notification(
@@ -193,9 +194,9 @@ async def _run_meal_reminders(override_utc_minutes: Optional[int] = None) -> dic
                     body=body,
                 ),
                 webpush=messaging.WebpushConfig(
-                    fcm_options=messaging.WebpushFCMOptions(link=f"{APP_BASE_URL}/"),
+                    fcm_options=messaging.WebpushFCMOptions(link=suggestions_url),
                 ),
-                data={"url": "/", "meal": meal_label},
+                data={"url": "/?open=suggestions", "meal": meal_label},
             )
             messaging.send(message)
             sent += 1
