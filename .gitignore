@@ -32,3 +32,4 @@ __pycache__/
 *.pyc
 server/venv/
 server/.env
+server/serviceAccountKey.json

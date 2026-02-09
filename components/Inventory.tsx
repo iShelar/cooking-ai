@@ -26,6 +26,12 @@ const Inventory: React.FC<InventoryProps> = ({ userId, initialTab }) => {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
 
   const clearSelectionOnTabChange = useCallback((tab: Tab) => {
+    // Stop voice recognition when switching tabs
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+      setIsListening(false);
+    }
     setActiveTab(tab);
     setSelectedInventoryIds(new Set());
     setSelectedShoppingIds(new Set());
@@ -63,6 +69,14 @@ const Inventory: React.FC<InventoryProps> = ({ userId, initialTab }) => {
   useEffect(() => {
     loadShoppingList();
   }, [loadShoppingList]);
+
+  // Stop speech recognition on unmount (e.g. navigating away)
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop();
+      recognitionRef.current = null;
+    };
+  }, []);
 
   const addParsedItems = useCallback(
     async (parsed: { name: string; quantity?: string }[]) => {

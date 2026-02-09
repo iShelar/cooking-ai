@@ -4,3 +4,4 @@ google-genai==1.44.0
 python-dotenv==1.0.0
 websockets==15.0.1
 PyJWT[crypto]==2.10.1
+firebase-admin==7.1.0

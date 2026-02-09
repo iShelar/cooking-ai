@@ -19,6 +19,9 @@ export default defineConfig(({ mode }) => {
           '/api': {
             target: 'http://localhost:8080',
           },
+          '/share': {
+            target: 'http://localhost:8080',
+          },
         },
       },
       plugins: [

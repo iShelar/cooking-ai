@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 
 from gemini_live import GeminiLive
 from gemini_api import router as api_router
+from share_preview import router as share_router
 from auth import verify_ws_token
 
 # ---------------------------------------------------------------------------
@@ -58,6 +59,9 @@ app.add_middleware(
 
 # Include REST API routes (scan-ingredients, recipe-recommendations, etc.)
 app.include_router(api_router)
+
+# Include share preview route (OG meta tags for social crawlers)
+app.include_router(share_router)
 
 
 @app.get("/api/health")
