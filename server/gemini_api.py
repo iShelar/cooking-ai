@@ -47,6 +47,43 @@ def _get_client() -> genai.Client:
     return genai.Client(api_key=api_key)
 
 
+# Default model for REST endpoints; fallbacks if primary fails (e.g. model not found).
+DEFAULT_MODELS = [
+    "gemini-3-flash-preview",
+    "gemini-2.5-flash-preview",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+]
+
+
+def _model_list() -> list:
+    """Ordered list of models to try. Override via GEMINI_MODELS env (comma-separated)."""
+    env = os.getenv("GEMINI_MODELS")
+    if env:
+        return [m.strip() for m in env.split(",") if m.strip()]
+    return DEFAULT_MODELS.copy()
+
+
+async def _generate_with_fallback(client: genai.Client, contents, config=None, **kwargs):
+    """Call generate_content with the first model; on failure try fallbacks. Never fallback on 429."""
+    models = _model_list()
+    last_exc = None
+    for model in models:
+        try:
+            return await client.aio.models.generate_content(
+                model=model,
+                contents=contents,
+                config=config,
+                **kwargs,
+            )
+        except Exception as e:
+            last_exc = e
+            if _is_rate_limit_error(e):
+                raise
+            logger.warning("Model %s failed: %s; trying next.", model, e)
+    raise last_exc
+
+
 # ---------------------------------------------------------------------------
 # Request / Response models
 # ---------------------------------------------------------------------------
@@ -105,9 +142,9 @@ async def scan_ingredients(req: ScanIngredientsRequest):
         client = _get_client()
         image_bytes = base64.b64decode(req.image)
 
-        response = await client.aio.models.generate_content(
-            model="gemini-3-flash-preview",
-            contents=types.Content(
+        response = await _generate_with_fallback(
+            client,
+            types.Content(
                 parts=[
                     types.Part(
                         inline_data=types.Blob(
@@ -150,9 +187,9 @@ async def parse_grocery_text(req: ParseGroceryTextRequest):
             f'User input: "{req.text.strip()}"'
         )
 
-        response = await client.aio.models.generate_content(
-            model="gemini-3-flash-preview",
-            contents=prompt,
+        response = await _generate_with_fallback(
+            client,
+            prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema={
@@ -187,9 +224,9 @@ async def parse_grocery_image(req: ParseGroceryImageRequest):
         client = _get_client()
         image_bytes = base64.b64decode(req.image)
 
-        response = await client.aio.models.generate_content(
-            model="gemini-3-flash-preview",
-            contents=types.Content(
+        response = await _generate_with_fallback(
+            client,
+            types.Content(
                 parts=[
                     types.Part(
                         inline_data=types.Blob(
@@ -232,9 +269,9 @@ async def recipe_recommendations(req: RecipeRecommendationsRequest):
             'Provide a JSON array of objects with "title", "description", and "id" (random string).'
         )
 
-        response = await client.aio.models.generate_content(
-            model="gemini-3-flash-preview",
-            contents=prompt,
+        response = await _generate_with_fallback(
+            client,
+            prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema={
@@ -296,9 +333,9 @@ async def generate_recipe(req: GenerateRecipeRequest):
             "Keep steps concise and actionable."
         )
 
-        response = await client.aio.models.generate_content(
-            model="gemini-3-flash-preview",
-            contents=prompt,
+        response = await _generate_with_fallback(
+            client,
+            prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema={
@@ -381,9 +418,9 @@ async def youtube_timestamps(req: YouTubeTimestampsRequest):
             "3. Order segments by time."
         )
 
-        response = await client.aio.models.generate_content(
-            model="gemini-3-flash-preview",
-            contents=types.Content(
+        response = await _generate_with_fallback(
+            client,
+            types.Content(
                 parts=[
                     types.Part(
                         file_data=types.FileData(
@@ -497,9 +534,9 @@ async def recipe_from_youtube(req: RecipeFromYouTubeRequest):
             "Order steps by the order of their timestamps."
         )
 
-        response = await client.aio.models.generate_content(
-            model="gemini-3-flash-preview",
-            contents=prompt,
+        response = await _generate_with_fallback(
+            client,
+            prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema={
