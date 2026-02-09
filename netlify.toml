@@ -2,12 +2,8 @@
   publish = "dist"
   functions = "netlify/functions"
 
-# Share links: function returns recipe meta for crawlers, redirects browsers to SPA
-[[redirects]]
-  from = "/share/*"
-  to = "/.netlify/functions/share-preview"
-  status = 200
-  force = true
+# Share links are now handled by the Python backend (server/share_preview.py).
+# In production, proxy /share/* to the backend server.
 
 # SPA: serve index.html for all other routes
 [[redirects]]

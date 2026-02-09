@@ -129,10 +129,18 @@ async def share_preview(token: str, request: Request):
     description = recipe.get("description", "") if isinstance(recipe.get("description"), str) else ""
     image = recipe.get("image", "") if isinstance(recipe.get("image"), str) else ""
 
-    origin = f"{request.url.scheme}://{request.url.netloc}"
+    # Compute origin from forwarded headers (Vite proxy, Nginx, etc.) or request URL
+    proto = request.headers.get("x-forwarded-proto") or str(request.url.scheme)
+    host = (
+        request.headers.get("x-forwarded-host")
+        or request.headers.get("host")
+        or str(request.url.netloc)
+    )
+    origin = f"{proto}://{host}"
     image_url = _absolute_image_url(image, origin)
     page_url = f"{origin}/share/{token}"
-    spa_url = f"{origin}/?share={token}"
+    # Relative SPA redirect — always resolves against the browser's current origin
+    spa_url = f"/?share={token}"
 
     safe_title = escape(title)
     safe_desc = escape(description)

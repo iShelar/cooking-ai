@@ -21,6 +21,7 @@ export default defineConfig(({ mode }) => {
           },
           '/share': {
             target: 'http://localhost:8080',
+            headers: { 'X-Forwarded-Proto': 'https' },
           },
         },
       },
