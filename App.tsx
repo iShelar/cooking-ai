@@ -52,8 +52,8 @@ const App: React.FC = () => {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showRecipePrepMenu, setShowRecipePrepMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  /** Sort order for recipe list: recent (default), name, difficulty, time. */
-  const [recipeSort, setRecipeSort] = useState<'recent' | 'name' | 'difficulty' | 'time'>('recent');
+  /** Sort order for recipe list: recent (default), name, difficulty, time, likedVideos. */
+  const [recipeSort, setRecipeSort] = useState<'recent' | 'name' | 'difficulty' | 'time' | 'likedVideos'>('recent');
   /** When set, show the "use browser language for voice?" prompt once at start. */
   const [languagePromptOption, setLanguagePromptOption] = useState<{ code: string; label: string } | null>(null);
   const languagePromptCheckedRef = useRef(false);
@@ -463,9 +463,28 @@ const App: React.FC = () => {
       list.sort((a, b) => difficultyOrder[a.difficulty] - difficultyOrder[b.difficulty]);
     } else if (recipeSort === 'time') {
       list.sort((a, b) => totalMinutes(a) - totalMinutes(b));
+    } else if (recipeSort === 'likedVideos') {
+      const likedSet = new Set(userPreferences?.likedRecipeIds ?? []);
+      const score = (r: Recipe) => {
+        const liked = likedSet.has(r.id);
+        const hasVideo = !!(r.videoUrl?.trim());
+        if (liked && hasVideo) return 2;
+        if (liked) return 1;
+        return 0;
+      };
+      list.sort((a, b) => {
+        const diff = score(b) - score(a);
+        if (diff !== 0) return diff;
+        const aPrepared = a.lastPreparedAt ?? '';
+        const bPrepared = b.lastPreparedAt ?? '';
+        if (aPrepared !== bPrepared) return bPrepared.localeCompare(aPrepared);
+        const aViewed = a.lastViewedAt ?? '';
+        const bViewed = b.lastViewedAt ?? '';
+        return bViewed.localeCompare(aViewed);
+      });
     }
     return list;
-  }, [recipes, searchQuery, recipeSort]);
+  }, [recipes, searchQuery, recipeSort, userPreferences?.likedRecipeIds]);
 
   const handleRecipeClick = (recipe: Recipe) => {
     const updated = { ...recipe, lastViewedAt: new Date().toISOString() };
@@ -1004,7 +1023,7 @@ const App: React.FC = () => {
         ) : (
           <>
             <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 scrollbar-none">
-              {(['recent', 'name', 'difficulty', 'time'] as const).map((key) => (
+              {(['recent', 'name', 'difficulty', 'time', 'likedVideos'] as const).map((key) => (
                 <button
                   key={key}
                   type="button"
@@ -1019,6 +1038,7 @@ const App: React.FC = () => {
                   {key === 'name' && 'Name'}
                   {key === 'difficulty' && 'Difficulty'}
                   {key === 'time' && 'Time'}
+                  {key === 'likedVideos' && 'Liked videos'}
                 </button>
               ))}
             </div>
