@@ -1,17 +1,19 @@
 [build]
   publish = "dist"
 
-# Proxy API calls to Python backend on Render
+# Backend: for zero cold starts, deploy to Google Cloud Run (min-instances: 1).
+# See server/DEPLOY_CLOUD_RUN.md — then replace the URL below with your Cloud Run service URL.
+# Proxy API calls to Python backend (Render or Cloud Run)
 [[redirects]]
   from = "/api/*"
-  to = "https://cooking-ai.onrender.com/api/:splat"
+  to = "https://cookai-backend-478336930106.us-central1.run.app/api/:splat"
   status = 200
   force = true
 
 # Proxy share preview to Python backend
 [[redirects]]
   from = "/share/*"
-  to = "https://cooking-ai.onrender.com/share/:splat"
+  to = "https://cookai-backend-478336930106.us-central1.run.app/share/:splat"
   status = 200
   force = true
 
