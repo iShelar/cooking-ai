@@ -160,7 +160,7 @@ const Inventory: React.FC<InventoryProps> = ({ userId, initialTab }) => {
     [chatInput, activeTab, addParsedItems, addParsedItemsToShoppingList]
   );
 
-  const handleVoiceToggle = useCallback((target: 'inventory' | 'shopping') => {
+  const handleVoiceToggle = useCallback(() => {
     const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognitionAPI) {
       setError("Voice isn't supported here. Type or use a photo instead!");
@@ -172,22 +172,34 @@ const Inventory: React.FC<InventoryProps> = ({ userId, initialTab }) => {
       return;
     }
     const recognition = new SpeechRecognitionAPI();
-    recognition.continuous = false;
-    recognition.interimResults = false;
+    recognition.continuous = true;
+    recognition.interimResults = true;
     recognition.lang = 'en-US';
     recognition.onresult = (event: SpeechRecognitionEvent) => {
-      const transcript = event.results[0]?.[0]?.transcript ?? '';
-      if (transcript.trim()) {
-        const add = target === 'shopping' ? addParsedItemsToShoppingList : addParsedItems;
-        parseGroceryListFromText(transcript).then((parsed) => add(parsed));
+      let interim = '';
+      let final = '';
+      for (let i = 0; i < event.results.length; i++) {
+        const result = event.results[i];
+        const text = result[0]?.transcript ?? '';
+        if (result.isFinal) {
+          final += text;
+        } else {
+          interim += text;
+        }
       }
+      // Show final + interim in the text input as the user speaks
+      setChatInput((final + interim).trim());
     };
     recognition.onend = () => setIsListening(false);
-    recognition.onerror = () => setError("We didn't catch that. Try again?");
+    recognition.onerror = () => {
+      setError("We didn't catch that. Try again?");
+      setIsListening(false);
+    };
     recognitionRef.current = recognition;
     recognition.start();
     setIsListening(true);
-  }, [isListening, addParsedItems, addParsedItemsToShoppingList]);
+    setError(null);
+  }, [isListening]);
 
   const handleRemove = useCallback(
     async (itemId: string) => {
@@ -369,7 +381,7 @@ const Inventory: React.FC<InventoryProps> = ({ userId, initialTab }) => {
                 </label>
                 <button
                   type="button"
-                  onClick={() => handleVoiceToggle('shopping')}
+                  onClick={handleVoiceToggle}
                   disabled={isProcessing}
                   className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-medium text-sm transition-all active:scale-[0.99] ${
                     isListening ? 'bg-red-500 text-white' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
@@ -516,7 +528,7 @@ const Inventory: React.FC<InventoryProps> = ({ userId, initialTab }) => {
               </label>
               <button
                 type="button"
-                onClick={() => handleVoiceToggle('inventory')}
+                onClick={handleVoiceToggle}
                 disabled={isProcessing}
                 className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-medium text-sm transition-all active:scale-[0.99] ${
                   isListening ? 'bg-red-500 text-white' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'

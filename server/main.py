@@ -16,13 +16,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from gemini_live import GeminiLive
+from gemini_api import router as api_router
+from auth import verify_ws_token
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-# Load .env.local from the project root (one level up from server/)
-env_path = Path(__file__).resolve().parent.parent / ".env.local"
+# Load server/.env (API keys live here, never in the frontend)
+env_path = Path(__file__).resolve().parent / ".env"
 load_dotenv(dotenv_path=str(env_path), override=True)
 
 logging.basicConfig(
@@ -38,7 +40,7 @@ MODEL = os.getenv(
 SESSION_TIME_LIMIT = int(os.getenv("SESSION_TIME_LIMIT", "600"))  # 10 min default
 
 if not API_KEY:
-    logger.error("GEMINI_API_KEY is not set in .env.local — server will not work.")
+    logger.error("GEMINI_API_KEY is not set in server/.env — server will not work.")
 
 # ---------------------------------------------------------------------------
 # FastAPI app
@@ -53,6 +55,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include REST API routes (scan-ingredients, recipe-recommendations, etc.)
+app.include_router(api_router)
 
 
 @app.get("/api/health")
@@ -81,8 +86,20 @@ async def websocket_endpoint(websocket: WebSocket):
          - { "serverContent": { "turnComplete": true } }
          - { "serverContent": { "interrupted": true } }
     """
+    # ------------------------------------------------------------------
+    # 0. Authenticate (token sent as ?token= query param)
+    # ------------------------------------------------------------------
+    try:
+        claims = verify_ws_token(websocket)
+        uid = claims.get("sub", "unknown")
+    except ValueError as e:
+        await websocket.accept()
+        await websocket.close(code=4001, reason=f"Auth failed: {e}")
+        logger.warning("WebSocket auth rejected: %s", e)
+        return
+
     await websocket.accept()
-    logger.info("WebSocket connected")
+    logger.info("WebSocket connected (uid=%s)", uid)
 
     # ------------------------------------------------------------------
     # 1. Wait for setup message

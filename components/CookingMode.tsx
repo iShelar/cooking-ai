@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Recipe, AppSettings, DEFAULT_APP_SETTINGS, VOICE_LANGUAGE_OPTIONS } from '../types';
-import { Type } from '@google/genai';
 import { decodeAudioData } from '../services/geminiService';
+import { getAuthToken } from '../services/apiClient';
 import { subtractRecipeIngredientsFromInventory } from '../services/dbService';
 import { resampleTo16k, float32ToInt16Pcm, BATCH_SAMPLES_16K } from '../services/voiceAudioUtils';
 
@@ -557,44 +557,44 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
     {
       name: 'startTimer',
       parameters: {
-        type: Type.OBJECT,
+        type: 'OBJECT',
         description: 'Start a kitchen timer. Pass minutes (use 0 for seconds-only) and optionally seconds (e.g. 5 min, or 0 min + 30 sec).',
         properties: {
-          minutes: { type: Type.NUMBER, description: 'Minutes (use 0 for under a minute)' },
-          seconds: { type: Type.NUMBER, description: 'Seconds (optional, e.g. 30 for 30 seconds)' }
+          minutes: { type: 'NUMBER', description: 'Minutes (use 0 for under a minute)' },
+          seconds: { type: 'NUMBER', description: 'Seconds (optional, e.g. 30 for 30 seconds)' }
         },
         required: ['minutes']
       }
     },
-    { name: 'pauseTimer', parameters: { type: Type.OBJECT, properties: {} } },
-    { name: 'resumeTimer', parameters: { type: Type.OBJECT, properties: {} } },
-    { name: 'stopTimer', parameters: { type: Type.OBJECT, properties: {} } },
+    { name: 'pauseTimer', parameters: { type: 'OBJECT', properties: {} } },
+    { name: 'resumeTimer', parameters: { type: 'OBJECT', properties: {} } },
+    { name: 'stopTimer', parameters: { type: 'OBJECT', properties: {} } },
     {
       name: 'setTemperature',
       parameters: {
-        type: Type.OBJECT,
-        properties: { level: { type: Type.STRING } },
+        type: 'OBJECT',
+        properties: { level: { type: 'STRING' } },
         required: ['level']
       }
     },
-    { name: 'nextStep', parameters: { type: Type.OBJECT, properties: {} } },
-    { name: 'previousStep', parameters: { type: Type.OBJECT, properties: {} } },
+    { name: 'nextStep', parameters: { type: 'OBJECT', properties: {} } },
+    { name: 'previousStep', parameters: { type: 'OBJECT', properties: {} } },
     {
       name: 'goToStep',
       parameters: {
-        type: Type.OBJECT,
+        type: 'OBJECT',
         description: 'Jumps the UI to a specific step.',
-        properties: { index: { type: Type.NUMBER, description: '0-indexed step number' } },
+        properties: { index: { type: 'NUMBER', description: '0-indexed step number' } },
         required: ['index']
       }
     },
     {
       name: 'setAudioSource',
       parameters: {
-        type: Type.OBJECT,
+        type: 'OBJECT',
         description: 'Switch whether the user hears the assistant (agent) or the recipe video. Use when they say "use video audio", "I want to hear the video", "switch to agent", etc.',
         properties: {
-          source: { type: Type.STRING, enum: ['agent', 'video'], description: 'agent = assistant speaks; video = mute assistant so user hears embedded video' }
+          source: { type: 'STRING', enum: ['agent', 'video'], description: 'agent = assistant speaks; video = mute assistant so user hears embedded video' }
         },
         required: ['source']
       }
@@ -602,10 +602,10 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
     {
       name: 'setVideoPlayback',
       parameters: {
-        type: Type.OBJECT,
+        type: 'OBJECT',
         description: 'Pause, stop, or play the embedded recipe video. Call this when the user says "play the video", "start the video", "start video", "play video", "resume the video", "pause the video", "stop the video", "pause video", etc.',
         properties: {
-          action: { type: Type.STRING, enum: ['play', 'pause', 'stop'], description: 'play = start or resume playback; pause = pause; stop = stop and reset to start' }
+          action: { type: 'STRING', enum: ['play', 'pause', 'stop'], description: 'play = start or resume playback; pause = pause; stop = stop and reset to start' }
         },
         required: ['action']
       }
@@ -613,10 +613,10 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
     {
       name: 'setVideoMute',
       parameters: {
-        type: Type.OBJECT,
+        type: 'OBJECT',
         description: 'Mute or unmute the embedded recipe video. Use when the user says "mute the video", "mute video", "unmute the video", "turn off video sound", etc.',
         properties: {
-          muted: { type: Type.BOOLEAN, description: 'true = mute the video; false = unmute the video' }
+          muted: { type: 'BOOLEAN', description: 'true = mute the video; false = unmute the video' }
         },
         required: ['muted']
       }
@@ -624,7 +624,7 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
     {
       name: 'finishRecipe',
       parameters: {
-        type: Type.OBJECT,
+        type: 'OBJECT',
         description: 'Call when the user says they have finished cooking the recipe (e.g. "I\'m done", "we\'re finished", "recipe complete", "all done"). This subtracts the recipe ingredients from their inventory and exits cooking mode.',
         properties: {}
       }
@@ -773,7 +773,8 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
 
       // Connect to the Python backend via WebSocket (proxied by Vite in dev)
       const wsBase = (import.meta.env.VITE_LIVE_WS_URL as string) || window.location.origin;
-      const wsUrl = wsBase.replace(/^http/, 'ws') + '/ws';
+      const token = await getAuthToken();
+      const wsUrl = wsBase.replace(/^http/, 'ws') + '/ws' + (token ? `?token=${encodeURIComponent(token)}` : '');
       const ws = new WebSocket(wsUrl);
       ws.binaryType = 'arraybuffer';
 

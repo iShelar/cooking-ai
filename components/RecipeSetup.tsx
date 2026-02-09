@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Recipe, AppSettings, DEFAULT_APP_SETTINGS, VOICE_LANGUAGE_OPTIONS } from '../types';
-import { Type } from '@google/genai';
 import { decodeAudioData } from '../services/geminiService';
+import { getAuthToken } from '../services/apiClient';
 import { updateRecipeInDB } from '../services/dbService';
 
 interface RecipeSetupProps {
@@ -135,13 +135,13 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
     {
       name: 'updateRecipeQuantities',
       parameters: {
-        type: Type.OBJECT,
+        type: 'OBJECT',
         description: 'Update the servings and scale ingredients accurately.',
         properties: {
-          servings: { type: Type.NUMBER, description: 'The new number of people/servings.' },
+          servings: { type: 'NUMBER', description: 'The new number of people/servings.' },
           ingredients: { 
-            type: Type.ARRAY, 
-            items: { type: Type.STRING }, 
+            type: 'ARRAY', 
+            items: { type: 'STRING' }, 
             description: 'The updated list of ingredient strings with scaled quantities.' 
           }
         },
@@ -208,7 +208,8 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
 
       // Connect to the Python backend via WebSocket (proxied by Vite in dev)
       const wsBase = (import.meta.env.VITE_LIVE_WS_URL as string) || window.location.origin;
-      const wsUrl = wsBase.replace(/^http/, 'ws') + '/ws';
+      const token = await getAuthToken();
+      const wsUrl = wsBase.replace(/^http/, 'ws') + '/ws' + (token ? `?token=${encodeURIComponent(token)}` : '');
       const ws = new WebSocket(wsUrl);
       ws.binaryType = 'arraybuffer';
 

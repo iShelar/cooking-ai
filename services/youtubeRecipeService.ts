@@ -1,6 +1,5 @@
-import { Type } from "@google/genai";
-import { getGeminiInstance } from "./geminiService";
 import { DEFAULT_RECIPE_IMAGE } from "../constants";
+import { apiFetch } from "./apiClient";
 import type { Recipe, VideoTimestampSegment } from "../types";
 
 const TIMESTAMP_CACHE_KEY = "cookai_yt_timestamps_cache";
@@ -78,78 +77,25 @@ export interface RecipeGenerationOptions {
   alternatives?: string[];
 }
 
-/** Build a Recipe from a timestamp result using Gemini; each step has a timestamp from the transcript. */
+/** Build a Recipe from a timestamp result using Gemini (via backend); each step has a timestamp from the transcript. */
 export async function recipeFromTimestampResult(
   result: YouTubeTimestampResult,
   options?: RecipeGenerationOptions
 ): Promise<Recipe> {
-  const ai = getGeminiInstance();
-  const segmentSummary = result.segments
-    .map((s) => `[${s.timestamp}] ${s.content}`)
-    .join("\n");
-
-  let constraints = "";
-  if (options?.dietary?.length || options?.allergies?.length || options?.alternatives?.length) {
-    const parts: string[] = [];
-    if (options.dietary?.length) parts.push(`Dietary: ${options.dietary.join(", ")}. Adapt the recipe to respect these.`);
-    if (options.allergies?.length) parts.push(`Strictly avoid (allergies): ${options.allergies.join(", ")}. Do not include these.`);
-    if (options.alternatives?.length) parts.push(`Use these substitutions where applicable: ${options.alternatives.join("; ")}.`);
-    constraints = `\n\nImportant: ${parts.join(" ")}`;
-  }
-
-  const prompt = `You are given a video transcript with timestamps. Create a single recipe.${constraints}
-
-Video summary: ${result.summary}
-
-Transcript segments (each line is "[MM:SS] content"):
-${segmentSummary}
-
-Return a JSON object with:
-- title: short recipe title
-- description: 1-2 sentence description
-- prepTime: e.g. "10 min"
-- cookTime: e.g. "15 min"
-- difficulty: one of "Easy", "Medium", "Hard"
-- ingredients: array of strings (e.g. "2 eggs", "1 cup spinach")
-- steps: array of objects. Each object has:
-  - instruction: one short, clear cooking instruction (what to do in this step)
-  - timestamp: the EXACT MM:SS string from ONE of the transcript lines above that corresponds to when this step happens. Pick the segment where the chef actually does or introduces this action. Use the timestamp verbatim (e.g. "01:29", "02:04"). This is critical so the video and recipe stay in sync.
-
-Create one step per main action. Each step's timestamp must come from the transcript. Order steps by the order of their timestamps.`;
-
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          title: { type: Type.STRING },
-          description: { type: Type.STRING },
-          prepTime: { type: Type.STRING },
-          cookTime: { type: Type.STRING },
-          difficulty: { type: Type.STRING },
-          ingredients: { type: Type.ARRAY, items: { type: Type.STRING } },
-          steps: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                instruction: { type: Type.STRING },
-                timestamp: { type: Type.STRING },
-              },
-              required: ["instruction", "timestamp"],
-            },
-          },
-        },
-        required: ["title", "description", "prepTime", "cookTime", "difficulty", "ingredients", "steps"],
-      },
-    },
+  const res = await apiFetch("/api/recipe-from-youtube", {
+    method: "POST",
+    body: JSON.stringify({
+      videoUrl: result.videoUrl,
+      summary: result.summary,
+      segments: result.segments,
+      ...(options?.dietary && { dietary: options.dietary }),
+      ...(options?.allergies && { allergies: options.allergies }),
+      ...(options?.alternatives && { alternatives: options.alternatives }),
+    }),
   });
+  if (!res.ok) throw new Error("Gemini returned invalid JSON for recipe.");
 
-  const raw = response.text ?? "{}";
-  let parsed: {
+  const parsed: {
     title?: string;
     description?: string;
     prepTime?: string;
@@ -157,12 +103,7 @@ Create one step per main action. Each step's timestamp must come from the transc
     difficulty?: string;
     ingredients?: string[];
     steps?: { instruction?: string; timestamp?: string }[];
-  };
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new Error("Gemini returned invalid JSON for recipe.");
-  }
+  } = await res.json();
 
   const stepsWithTime = Array.isArray(parsed.steps) ? parsed.steps : [];
   const steps: string[] = stepsWithTime.map((s) => String(s.instruction ?? "").trim() || "Next step");
