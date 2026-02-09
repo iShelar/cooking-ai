@@ -4,14 +4,14 @@
 # Proxy API calls to Python backend on Render
 [[redirects]]
   from = "/api/*"
-  to = "https://cookai-backend.onrender.com/api/:splat"
+  to = "https://cooking-ai.onrender.com/api/:splat"
   status = 200
   force = true
 
 # Proxy share preview to Python backend
 [[redirects]]
   from = "/share/*"
-  to = "https://cookai-backend.onrender.com/share/:splat"
+  to = "https://cooking-ai.onrender.com/share/:splat"
   status = 200
   force = true
 
