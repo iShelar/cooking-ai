@@ -24,12 +24,13 @@ firebase.messaging().onBackgroundMessage(function(payload) {
 
 self.addEventListener('notificationclick', function(event) {
   event.notification.close();
-  var url = (event.notification.data && event.notification.data.url) || '/';
+  var path = (event.notification.data && event.notification.data.url) || '/';
+  var url = path.indexOf('http') === 0 ? path : (self.location.origin + (path.indexOf('/') === 0 ? path : '/' + path));
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(clientList) {
       for (var i = 0; i < clientList.length; i++) {
         var client = clientList[i];
-        if (client.url.indexOf(self.location.origin) === 0 && 'focus' in client) {
+        if (client.url.indexOf(self.location.origin) === 0 && 'navigate' in client) {
           client.navigate(url);
           return client.focus();
         }

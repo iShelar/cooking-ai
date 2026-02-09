@@ -316,7 +316,7 @@ const App: React.FC = () => {
           const refKey = `${dateKey}-${key}`;
           if (!mealReminderShownRef.current[refKey]) {
             mealReminderShownRef.current[refKey] = true;
-            setMealReminderToast(`Time for ${label.toLowerCase()}! Check suggestions.`);
+            // In-app toast disabled; push notification click opens suggestions page.
             return;
           }
         }
@@ -1264,9 +1264,24 @@ const App: React.FC = () => {
           </div>
         )}
         {mealReminderToast && (
-          <div className="fixed left-4 right-4 top-[calc(env(safe-area-inset-top)+0.5rem)] z-[60] flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-emerald-600 text-white text-sm font-medium shadow-lg">
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => {
+              setMealReminderToast(null);
+              navigateTo(AppView.Suggestions);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setMealReminderToast(null);
+                navigateTo(AppView.Suggestions);
+              }
+            }}
+            className="fixed left-4 right-4 top-[calc(env(safe-area-inset-top)+0.5rem)] z-[60] flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-emerald-600 text-white text-sm font-medium shadow-lg cursor-pointer hover:bg-emerald-700 active:bg-emerald-800 transition-colors"
+          >
             <span>{mealReminderToast}</span>
-            <button type="button" onClick={() => setMealReminderToast(null)} className="p-1 rounded-lg hover:bg-white/20" aria-label="Dismiss">×</button>
+            <button type="button" onClick={(e) => { e.stopPropagation(); setMealReminderToast(null); }} className="p-1 rounded-lg hover:bg-white/20" aria-label="Dismiss">×</button>
           </div>
         )}
         {showShoppingListPrompt && (
@@ -1476,11 +1491,11 @@ const App: React.FC = () => {
                 setAddRecipeButtonTutorialShown();
                 setShowRecipePrepMenu(true);
               }}
-              className={`p-2 rounded-xl transition-all duration-300 ${showRecipePrepMenu ? 'text-emerald-600 bg-emerald-50' : 'text-stone-400'} ${highlightAddRecipeButton ? 'ring-4 ring-emerald-500 ring-offset-2 ring-offset-white shadow-lg shadow-emerald-500/30 animate-pulse bg-emerald-50/80 text-emerald-600' : ''}`}
+              className={`flex items-center justify-center p-3 rounded-xl transition-all duration-300 ${showRecipePrepMenu ? 'text-emerald-600 bg-emerald-50' : 'text-stone-400'} ${highlightAddRecipeButton ? 'ring-4 ring-emerald-500 ring-offset-2 ring-offset-white shadow-lg shadow-emerald-500/30 animate-pulse bg-emerald-50/80 text-emerald-600' : ''}`}
               title="Recipe prep"
               aria-label="Create recipe (From YouTube, chat, or scan)"
             >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+              <svg className="w-6 h-6 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
             </button>
             <button
               onClick={() => navigateTo(AppView.Profile)}
