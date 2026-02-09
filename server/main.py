@@ -158,10 +158,11 @@ async def websocket_endpoint(websocket: WebSocket):
         return
 
     # ------------------------------------------------------------------
-    # 2. Prepare queues
+    # 2. Prepare queues and connection state
     # ------------------------------------------------------------------
     audio_input_queue: asyncio.Queue = asyncio.Queue()
     text_input_queue: asyncio.Queue = asyncio.Queue()
+    connection_closed = asyncio.Event()
 
     # ------------------------------------------------------------------
     # 3. Task: receive messages from client
@@ -213,8 +214,10 @@ async def websocket_endpoint(websocket: WebSocket):
 
         except WebSocketDisconnect:
             logger.info("Client disconnected")
+            connection_closed.set()
         except Exception as e:
             logger.error(f"Error receiving from client: {e}")
+            connection_closed.set()
 
     receive_task = asyncio.create_task(receive_from_client())
 
@@ -231,23 +234,26 @@ async def websocket_endpoint(websocket: WebSocket):
         ):
             if event is None:
                 break
+            if connection_closed.is_set():
+                break
 
             event_type = event.get("_type")
-
-            if event_type == "audio":
-                # Send raw audio bytes to client
-                await websocket.send_bytes(event["data"])
-
-            elif event_type == "setup_complete":
-                await websocket.send_json({"setupComplete": True})
-
-            elif event_type == "error":
-                logger.error(f"Gemini error: {event['error']}")
-                await websocket.send_json({"error": event["error"]})
-
-            else:
-                # Forward JSON events (toolCall, serverContent, etc.)
-                await websocket.send_json(event)
+            try:
+                if event_type == "audio":
+                    await websocket.send_bytes(event["data"])
+                elif event_type == "setup_complete":
+                    await websocket.send_json({"setupComplete": True})
+                elif event_type == "error":
+                    logger.error(f"Gemini error: {event['error']}")
+                    await websocket.send_json({"error": event["error"]})
+                else:
+                    await websocket.send_json(event)
+            except (RuntimeError, WebSocketDisconnect, ConnectionResetError, BrokenPipeError, OSError) as e:
+                logger.debug("WebSocket send failed (client likely disconnected): %s", e)
+                break
+            except Exception as e:
+                logger.warning("WebSocket send error: %s", e)
+                break
 
     try:
         await asyncio.wait_for(run_session(), timeout=SESSION_TIME_LIMIT)
