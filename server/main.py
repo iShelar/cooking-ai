@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 API_KEY = os.getenv("GEMINI_API_KEY")
 MODEL = os.getenv(
-    "LIVE_MODEL", "gemini-2.5-flash-native-audio-preview-12-2025"
+    "LIVE_MODEL", "gemini-3-flash-preview"
 )
 SESSION_TIME_LIMIT = int(os.getenv("SESSION_TIME_LIMIT", "600"))  # 10 min default
 

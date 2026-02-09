@@ -303,12 +303,24 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: 
     }
   }, []);
 
-  // When leaving cooking mode (e.g. back button) without turning off the assistant, stop voice recording.
+  // When leaving cooking mode (e.g. back button or screen change), stop voice and audio.
+  const stopAudio = useCallback(() => {
+    audioQueueRef.current = [];
+    audioProcessingRef.current = false;
+    sourcesRef.current.forEach(source => {
+      try { source.stop(); } catch (_) {}
+    });
+    sourcesRef.current.clear();
+    nextStartTimeRef.current = 0;
+    setIsAssistantSpeaking(false);
+  }, []);
+
   useEffect(() => {
     return () => {
       closeSessionAndCleanup();
+      stopAudio();
     };
-  }, [closeSessionAndCleanup]);
+  }, [closeSessionAndCleanup, stopAudio]);
 
   const getCurrentStepContext = useCallback((stepIndex: number) => {
     const oneBased = stepIndex + 1;
@@ -515,17 +527,6 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     };
   }, [timerSeconds, timerIsPaused]);
-
-  const stopAudio = useCallback(() => {
-    audioQueueRef.current = [];
-    audioProcessingRef.current = false;
-    sourcesRef.current.forEach(source => {
-      try { source.stop(); } catch (_) {}
-    });
-    sourcesRef.current.clear();
-    nextStartTimeRef.current = 0;
-    setIsAssistantSpeaking(false);
-  }, []);
 
   const processAudioQueue = useCallback(async () => {
     if (audioProcessingRef.current || audioQueueRef.current.length === 0 || !audioContextRef.current) return;

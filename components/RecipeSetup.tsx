@@ -69,13 +69,7 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
     }
   }, []);
 
-  // When leaving setup (e.g. cancel) without turning off the assistant, stop voice recording.
-  useEffect(() => {
-    return () => {
-      closeSessionAndCleanup();
-    };
-  }, [closeSessionAndCleanup]);
-
+  // When leaving setup (e.g. cancel or screen change), stop voice and audio.
   const stopAudio = useCallback(() => {
     audioQueueRef.current = [];
     audioProcessingRef.current = false;
@@ -86,6 +80,13 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
     nextStartTimeRef.current = 0;
     setIsAssistantSpeaking(false);
   }, []);
+
+  useEffect(() => {
+    return () => {
+      closeSessionAndCleanup();
+      stopAudio();
+    };
+  }, [closeSessionAndCleanup, stopAudio]);
 
   const processAudioQueue = useCallback(async () => {
     if (audioProcessingRef.current || audioQueueRef.current.length === 0 || !audioContextRef.current) return;

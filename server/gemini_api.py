@@ -106,7 +106,7 @@ async def scan_ingredients(req: ScanIngredientsRequest):
         image_bytes = base64.b64decode(req.image)
 
         response = await client.aio.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3-flash-preview",
             contents=types.Content(
                 parts=[
                     types.Part(
@@ -151,7 +151,7 @@ async def parse_grocery_text(req: ParseGroceryTextRequest):
         )
 
         response = await client.aio.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3-flash-preview",
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -188,7 +188,7 @@ async def parse_grocery_image(req: ParseGroceryImageRequest):
         image_bytes = base64.b64decode(req.image)
 
         response = await client.aio.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3-flash-preview",
             contents=types.Content(
                 parts=[
                     types.Part(
@@ -233,7 +233,7 @@ async def recipe_recommendations(req: RecipeRecommendationsRequest):
         )
 
         response = await client.aio.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3-flash-preview",
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -297,7 +297,7 @@ async def generate_recipe(req: GenerateRecipeRequest):
         )
 
         response = await client.aio.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3-flash-preview",
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -382,7 +382,7 @@ async def youtube_timestamps(req: YouTubeTimestampsRequest):
         )
 
         response = await client.aio.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3-flash-preview",
             contents=types.Content(
                 parts=[
                     types.Part(
@@ -498,7 +498,7 @@ async def recipe_from_youtube(req: RecipeFromYouTubeRequest):
         )
 
         response = await client.aio.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3-flash-preview",
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
