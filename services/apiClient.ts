@@ -7,6 +7,20 @@
 
 import { auth } from './firebase';
 
+/** User-facing message when the API returns 429 (rate limit exceeded). */
+export const RATE_LIMIT_MESSAGE =
+  "We're getting a lot of requests right now. Please try again in a few minutes.";
+
+/**
+ * Throws a user-friendly error if the response is 429 (rate limit).
+ * Call this after apiFetch() and before reading the body so the UI can show the message.
+ */
+export function checkRateLimit(res: Response): void {
+  if (res.status === 429) {
+    throw new Error(RATE_LIMIT_MESSAGE);
+  }
+}
+
 /**
  * Make an authenticated fetch request to the backend.
  * Automatically attaches `Authorization: Bearer <idToken>`.

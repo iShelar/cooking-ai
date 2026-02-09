@@ -1,5 +1,5 @@
 import { DEFAULT_RECIPE_IMAGE } from "../constants";
-import { apiFetch } from "./apiClient";
+import { apiFetch, checkRateLimit } from "./apiClient";
 import type { Recipe, VideoTimestampSegment } from "../types";
 
 const TIMESTAMP_CACHE_KEY = "cookai_yt_timestamps_cache";
@@ -18,6 +18,7 @@ export async function fetchTimestampsForUrl(videoUrl: string): Promise<YouTubeTi
     method: "POST",
     body: JSON.stringify({ url }),
   });
+  checkRateLimit(res);
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error((err as { error?: string }).error || "Video service isn't responding. Try again in a moment.");
@@ -87,7 +88,11 @@ export async function recipeFromTimestampResult(
       ...(options?.alternatives && { alternatives: options.alternatives }),
     }),
   });
-  if (!res.ok) throw new Error("Gemini returned invalid JSON for recipe.");
+  checkRateLimit(res);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error || "Gemini returned invalid JSON for recipe.");
+  }
 
   const parsed: {
     title?: string;

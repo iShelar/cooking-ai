@@ -1,5 +1,4 @@
-
-import { apiFetch } from './apiClient';
+import { apiFetch, checkRateLimit } from './apiClient';
 
 /** Parsed grocery item for inventory (name + optional quantity). */
 export interface ParsedGroceryItem {
@@ -21,6 +20,7 @@ export const scanIngredientsFromImage = async (base64Image: string): Promise<str
     method: 'POST',
     body: JSON.stringify({ image: base64Image }),
   });
+  checkRateLimit(res);
   if (!res.ok) throw new Error('Failed to scan ingredients');
   const data = await res.json();
   return data.ingredients || [];
@@ -32,6 +32,7 @@ export const parseGroceryListFromText = async (text: string): Promise<ParsedGroc
     method: 'POST',
     body: JSON.stringify({ text }),
   });
+  checkRateLimit(res);
   if (!res.ok) throw new Error("Couldn't parse that text. Try again?");
   return res.json();
 };
@@ -42,6 +43,7 @@ export const parseGroceryListFromImage = async (base64Image: string): Promise<Pa
     method: 'POST',
     body: JSON.stringify({ image: base64Image }),
   });
+  checkRateLimit(res);
   if (!res.ok) throw new Error("We couldn't read that image. Try another?");
   return res.json();
 };
@@ -51,6 +53,7 @@ export const getRecipeRecommendations = async (ingredients: string[]) => {
     method: 'POST',
     body: JSON.stringify({ ingredients }),
   });
+  checkRateLimit(res);
   if (!res.ok) throw new Error("Couldn't get recipe recommendations. Try again?");
   return res.json();
 };
@@ -72,6 +75,7 @@ export const generateRecipeFromDescription = async (
     method: 'POST',
     body: JSON.stringify({ description, ...options }),
   });
+  checkRateLimit(res);
   if (!res.ok) throw new Error("We couldn't create that recipe. Give it another try!");
   return res.json();
 };
