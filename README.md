@@ -2,35 +2,38 @@
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
+**Built for the Google DeepMind Gemini 3 Hackathon**
+
 # Run and deploy your AI Studio app
 
 This contains everything you need to run your app locally.
 
 View your app in AI Studio: https://ai.studio/apps/drive/1q4PwPz4BX_IElsBhDK1tstYNzl75BJIm
 
+**→ For judges:** See **[docs/JUDGES.md](docs/JUDGES.md)** for one-command run and quick demo steps.
+
 ## Run Locally
 
 **Prerequisites:**  Node.js, Python 3.10+
 
-
 1. Install dependencies:
-   `npm install`
+   ```bash
+   npm install
+   cd server && pip install -r requirements.txt && cd ..
+   ```
 2. Set the Firebase config vars in [.env.local](.env.local)
 3. **Firestore (recipes):** In [Firebase Console](https://console.firebase.google.com) → your project → **Build** → **Firestore Database**:
    - Click **Create database** if you haven't already (start in test mode).
    - Open the **Rules** tab and paste the contents of [firestore.rules](firestore.rules), then **Publish**. This allows the app to read/write the `recipes` collection.
-4. Run the app:
-   `npm run dev`
+4. Run the app (frontend + backend in one terminal):
+   ```bash
+   npm run run
+   ```
+   Or run separately: `npm run dev` (frontend) and `npm run dev:backend` (Python backend).
 
 ### Python backend
 
-All AI endpoints, voice proxy, share preview, YouTube timestamp extraction, and guest sign-in are handled by the Python backend. Run it alongside the Vite dev server:
-
-```bash
-cd server && pip install -r requirements.txt && python main.py
-```
-
-It runs at `http://localhost:8080`. The Vite dev server proxies `/api`, `/ws`, and `/share` to it automatically.
+All AI endpoints, voice proxy, share preview, YouTube timestamp extraction, and guest sign-in are handled by the Python backend. It runs at `http://localhost:8080`. The Vite dev server proxies `/api`, `/ws`, and `/share` to it automatically.
 
 **Configuration:** Create `server/.env` with:
 - `GEMINI_API_KEY` — your Gemini API key
@@ -77,28 +80,16 @@ The app is set up as a PWA so users can install it on their phone or desktop (Ad
 - **Install:** Deploy over **HTTPS**; then users can install via the browser's install prompt or menu.
 - **Offline:** The app shell and static assets are cached. Auth and live data (Firebase, Gemini) still require a connection.
 
-<!-- Features -->
-## Features to be added:
+## Features
 
-<!-- 1. ~~Dietary option~~ **Done** – At start, a one-time optional survey asks for dietary preferences and allergies (skippable). You can update them anytime in **Settings → Dietary & preferences**. When creating a recipe from **chat** or **YouTube**, you can choose to use saved preferences or skip for that recipe, and add extra alternatives (e.g. oat milk, gluten-free pasta) for that recipe only. -->
-<!-- 5. Fix performance issue and also UI bugs - Not hearing the voice when noise is there 
-+ Should respond quickly. -->
-<!-- 6. Search functionality -->
-<!-- 7. Instagram - Feature scope -->
-8. Voice command - fully automate
-<!-- 9. Voice icon - sticky on corner. -->
-<!-- 10. Once done - we will use inventory items and save it at end. -->
-<!-- 11. Bugs - on mobile device - not able to start the video using voice. -->
-<!-- 12. Generate recipes using prompt. -->
-<!-- 13. Fix youtube recipe generation flow. -->
-<!-- 14. Prompt user if they wanna change the laguage or not. -->
-<!-- 15. Image is not properly set (thumbnail or gen ai)~~ — When a recipe has no image 
-(or only a placeholder), the app generates a realistic image with Gemini, stores it 
-in Firebase Storage, and links it to the recipe in the DB. -->
-<!-- 16. Share recipes -->
-<!-- 17. Whenever recipe start or if important it should ask for timer and heat level. so 
-user will know -> every time show the heat level. -->
-18. Few curated recipes - we will standardize
-19. Feature – When you change ingredients or use something different in a step, the agent will prompt you to save that change as a "memory" for that step. The next time you make a recipe, the agent will remind you of your previous changes. This option will also be available in the instructions before the prepare recipe screen, allowing you to add preferences or changes (as a memory) for specific steps.
-<!-- 20. Language Selection (Instead of direct detection) -> Detected Language should be default selected. -->
-21. Reminders based on time or your schedule time for lunch breakfast dinner (meal plans) - Suggestions (based on inventory) - what recipes I liked based on data - cooked recipes, liked recipes, added recipes (keep the priority) (Reminders will be standard for each meal - breakfast, lunch dinner - but user can change that inside the settings)
+- **Create recipes** — From a text description (chat) or a YouTube cooking video URL; Gemini generates the recipe and (for YouTube) timestamped steps so the video syncs in cooking mode.
+- **Voice cooking mode** — Hands-free session over WebSocket: say "next step," "set timer 5 minutes," "go to step 3," or control the recipe video; Gemini Live responds with audio and tool calls for navigation, timers, and playback.
+- **Recipe setup** — Voice-guided scaling of servings via Gemini Live before you start cooking.
+- **Ingredient scanner** — Camera scan or photo of receipt/pantry; Gemini Vision identifies items; get recipe recommendations from your inventory.
+- **Inventory & shopping list** — Add items by text, voice, or parsed image; subtract used ingredients when you finish a recipe.
+- **Dietary preferences** — Optional one-time survey and **Settings → Dietary & preferences**; use (or skip) when creating recipes from chat or YouTube.
+- **Share recipes** — Share link with Open Graph previews; recipients can open and save to their collection.
+- **Push notifications** — Meal reminders at configurable times with recipe suggestions based on current inventory.
+- **PWA** — Install on phone or desktop; offline caching for the app shell.
+- **Voice language** — Choose response language in Settings for cooking mode.
+- **Recipe images** — When a recipe has no image, Gemini generates one and it’s stored in Firebase Storage.

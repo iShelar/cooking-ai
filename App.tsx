@@ -20,6 +20,7 @@ import { createShare, getSharedRecipe } from './services/shareService';
 import { getMissingIngredientsForRecipe } from './services/shoppingListService';
 import { getSuggestedRecipes } from './services/suggestionsService';
 import { subscribeToAuthState } from './services/authService';
+import { checkBackendHealth } from './services/backendHealthService';
 import type { User } from 'firebase/auth';
 
 const BOTTOM_NAV_VIEWS: AppView[] = [
@@ -92,6 +93,8 @@ const App: React.FC = () => {
   const [savingSharedRecipe, setSavingSharedRecipe] = useState(false);
   /** When set, show a modal with the share URL and Copy button (fallback when clipboard API is blocked on mobile/PWA). */
   const [shareLinkUrl, setShareLinkUrl] = useState<string | null>(null);
+  /** Backend health: null = not checked yet, false = down, true = up. Used to show "Start the backend" banner. */
+  const [backendUp, setBackendUp] = useState<boolean | null>(null);
 
   // On first load, if URL is /share/TOKEN or ?share=TOKEN (Netlify function redirect), show shared recipe view.
   useEffect(() => {
@@ -116,6 +119,22 @@ const App: React.FC = () => {
     const cleanUrl = window.location.pathname || '/';
     window.history.replaceState({ view: AppView.Suggestions }, '', cleanUrl);
   }, [authUser, authChecked]);
+
+  // Backend health check: poll periodically and show "Start the backend" banner when down.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let cancelled = false;
+    const run = async () => {
+      const { ok } = await checkBackendHealth();
+      if (!cancelled) setBackendUp(ok);
+    };
+    run();
+    const interval = setInterval(run, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     const unsubscribe = subscribeToAuthState((user) => {
@@ -690,6 +709,11 @@ const App: React.FC = () => {
     }
   }, [authUser, selectedRecipe]);
 
+  const retryBackendHealth = useCallback(async () => {
+    const { ok } = await checkBackendHealth();
+    setBackendUp(ok);
+  }, []);
+
   const renderLoading = (message: string) => (
     <div className="max-w-md mx-auto h-screen flex items-center justify-center bg-[#fcfcf9]">
       <div className="flex flex-col items-center gap-4">
@@ -811,6 +835,10 @@ const App: React.FC = () => {
         <div className="space-y-1 min-w-0">
           <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">Hello, Chef!</h1>
           <p className="text-stone-500 text-sm">What are we cooking today?</p>
+          <span className="inline-flex items-center gap-1.5 mt-2 px-2.5 py-1 rounded-full bg-stone-100 text-stone-500 text-xs font-medium">
+            <svg className="w-3.5 h-3.5 text-violet-500" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" /></svg>
+            Powered by Gemini 3
+          </span>
         </div>
         {authUser && (
           <button
@@ -1329,6 +1357,27 @@ const App: React.FC = () => {
 
   return (
     <div className="max-w-md mx-auto min-h-screen bg-[#fcfcf9] shadow-2xl relative">
+      {backendUp === false && (
+        <div
+          className="fixed left-4 right-4 top-[calc(env(safe-area-inset-top)+0.5rem)] z-[55] flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-amber-500 text-amber-950 text-sm font-medium shadow-lg"
+          role="status"
+          aria-live="polite"
+        >
+          <span className="flex items-center gap-2">
+            <svg className="w-5 h-5 shrink-0 text-amber-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            Start the backend
+          </span>
+          <button
+            type="button"
+            onClick={retryBackendHealth}
+            className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-600/80 text-amber-950 font-semibold text-xs hover:bg-amber-600 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      )}
       {languagePromptOption && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40" role="dialog" aria-modal="true" aria-labelledby="language-prompt-title">
           <div className="bg-white rounded-2xl shadow-xl border border-stone-200 max-w-sm w-full p-5 space-y-4">

@@ -92,6 +92,37 @@ const formatTempForDisplay = (suggestion: string, units: 'metric' | 'imperial'):
   return suggestion;
 };
 
+/** Human-readable label for a tool call (for "AI is deciding: ..." indicator). */
+function getThinkingLabelForToolCall(fc: { name: string; args?: Record<string, unknown> }): string {
+  const name = fc.name;
+  const args = fc.args ?? {};
+  switch (name) {
+    case 'nextStep': return 'go to next step';
+    case 'previousStep': return 'go to previous step';
+    case 'goToStep': {
+      const index = typeof args.index === 'number' ? args.index : 0;
+      return `navigate to step ${index + 1}`;
+    }
+    case 'startTimer': {
+      const mins = typeof args.minutes === 'number' ? args.minutes : 0;
+      const secs = typeof args.seconds === 'number' ? args.seconds : 0;
+      if (mins > 0 && secs > 0) return `set ${mins}m ${secs}s timer`;
+      if (mins > 0) return `set ${mins} minute timer`;
+      if (secs > 0) return `set ${secs} second timer`;
+      return 'set timer';
+    }
+    case 'pauseTimer': return 'pause timer';
+    case 'resumeTimer': return 'resume timer';
+    case 'stopTimer': return 'stop timer';
+    case 'setTemperature': return `set heat to ${args.level ?? '…'}`;
+    case 'setAudioSource': return `switch to ${args.source === 'video' ? 'video' : 'agent'} audio`;
+    case 'setVideoPlayback': return `${args.action ?? 'play'} video`;
+    case 'setVideoMute': return (args.muted ? 'mute' : 'unmute') + ' video';
+    case 'finishRecipe': return 'finish recipe and update inventory';
+    default: return name;
+  }
+}
+
 /** Set to true to show the Heat Level UI in cooking mode. */
 const SHOW_HEAT_UI = false;
 
@@ -105,6 +136,8 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: 
   const [activeTemperature, setActiveTemperature] = useState<string>('Off');
   const [suggestedTemp, setSuggestedTemp] = useState<string>('');
   const [toolNotification, setToolNotification] = useState<string | null>(null);
+  /** Brief "AI is deciding: ..." label shown before executing a tool call (agentic reasoning visible to judges). */
+  const [aiThinkingAction, setAiThinkingAction] = useState<string | null>(null);
   const [isAssistantSpeaking, setIsAssistantSpeaking] = useState(false);
   const [inputVolume, setInputVolume] = useState(0);
   /** When true, show embedded YouTube video that seeks to current step. Default on when recipe has video. */
@@ -634,83 +667,102 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
 
   const handleLiveMessage = useCallback(async (message: any) => {
     // Process tool calls first so the step indicator and UI update immediately, before audio.
+    // Show "AI is deciding: ..." briefly before executing so agentic reasoning is visible (judges).
     if (message.toolCall) {
-      for (const fc of message.toolCall.functionCalls) {
-        if (fc.name === 'startTimer') {
-          const mins = typeof fc.args?.minutes === 'number' ? fc.args.minutes : 0;
-          const secs = typeof fc.args?.seconds === 'number' ? fc.args.seconds : 0;
-          const total = mins * 60 + secs;
-          triggerStartTimer(Math.max(1, total));
-        }
-        else if (fc.name === 'pauseTimer') triggerPauseTimer();
-        else if (fc.name === 'resumeTimer') triggerResumeTimer();
-        else if (fc.name === 'stopTimer') triggerStopTimer();
-        else if (fc.name === 'setTemperature') triggerSetTemperature(fc.args.level as string);
-        else if (fc.name === 'nextStep') triggerNextStep();
-        else if (fc.name === 'previousStep') triggerPrevStep();
-        else if (fc.name === 'goToStep') triggerGoToStep(fc.args.index as number);
-        else if (fc.name === 'setAudioSource') {
-          const source = (fc.args.source === 'video' ? 'video' : 'agent') as 'agent' | 'video';
-          setAudioSource(source);
-          const player = ytPlayerRef.current;
-          if (source === 'video' && player) {
-            try {
-              player.unMute?.();
-              player.playVideo?.();
-            } catch (_) {}
-          } else if (source === 'agent' && player) {
-            try { player.mute?.(); } catch (_) {}
+      const calls = message.toolCall.functionCalls as Array<{ id?: string; name: string; args?: Record<string, unknown> }>;
+      const firstLabel = calls.length > 0 ? getThinkingLabelForToolCall(calls[0]) : null;
+      if (firstLabel) {
+        setAiThinkingAction(`AI is deciding: ${firstLabel}…`);
+      }
+      const runTools = () => {
+        for (const fc of calls) {
+          if (fc.name === 'startTimer') {
+            const mins = typeof fc.args?.minutes === 'number' ? fc.args.minutes : 0;
+            const secs = typeof fc.args?.seconds === 'number' ? fc.args.seconds : 0;
+            const total = mins * 60 + secs;
+            triggerStartTimer(Math.max(1, total));
           }
-        }
-        else if (fc.name === 'setVideoPlayback') {
-          const action = (fc.args?.action === 'play' || fc.args?.action === 'stop' ? fc.args.action : 'pause') as 'play' | 'pause' | 'stop';
-          const player = ytPlayerRef.current;
-          if (player) {
-            try {
-              if (action === 'play') {
+          else if (fc.name === 'pauseTimer') triggerPauseTimer();
+          else if (fc.name === 'resumeTimer') triggerResumeTimer();
+          else if (fc.name === 'stopTimer') triggerStopTimer();
+          else if (fc.name === 'setTemperature') triggerSetTemperature(fc.args?.level as string);
+          else if (fc.name === 'nextStep') triggerNextStep();
+          else if (fc.name === 'previousStep') triggerPrevStep();
+          else if (fc.name === 'goToStep') triggerGoToStep(fc.args?.index as number);
+          else if (fc.name === 'setAudioSource') {
+            const source = (fc.args?.source === 'video' ? 'video' : 'agent') as 'agent' | 'video';
+            setAudioSource(source);
+            const player = ytPlayerRef.current;
+            if (source === 'video' && player) {
+              try {
+                player.unMute?.();
                 player.playVideo?.();
-                setShowTapToPlayHint(true);
-                setTimeout(() => setShowTapToPlayHint(false), 5000);
-              } else if (action === 'pause') player.pauseVideo?.();
-              else player.stopVideo?.();
-            } catch (_) {}
+              } catch (_) {}
+            } else if (source === 'agent' && player) {
+              try { player.mute?.(); } catch (_) {}
+            }
           }
-        }
-        else if (fc.name === 'setVideoMute') {
-          const muted = fc.args?.muted === true;
-          const player = ytPlayerRef.current;
-          if (player) {
-            try {
-              if (muted) player.mute?.();
-              else player.unMute?.();
-            } catch (_) {}
+          else if (fc.name === 'setVideoPlayback') {
+            const action = (fc.args?.action === 'play' || fc.args?.action === 'stop' ? fc.args?.action : 'pause') as 'play' | 'pause' | 'stop';
+            const player = ytPlayerRef.current;
+            if (player) {
+              try {
+                if (action === 'play') {
+                  player.playVideo?.();
+                  setShowTapToPlayHint(true);
+                  setTimeout(() => setShowTapToPlayHint(false), 5000);
+                } else if (action === 'pause') player.pauseVideo?.();
+                else player.stopVideo?.();
+              } catch (_) {}
+            }
           }
-        }
-        else if (fc.name === 'finishRecipe') {
-          if (userId) {
-            subtractRecipeIngredientsFromInventory(userId, recipe).then(() => {
-              notify('Ingredients subtracted from inventory.');
+          else if (fc.name === 'setVideoMute') {
+            const muted = fc.args?.muted === true;
+            const player = ytPlayerRef.current;
+            if (player) {
+              try {
+                if (muted) player.mute?.();
+                else player.unMute?.();
+              } catch (_) {}
+            }
+          }
+          else if (fc.name === 'finishRecipe') {
+            if (userId) {
+              subtractRecipeIngredientsFromInventory(userId, recipe).then(() => {
+                notify('Ingredients subtracted from inventory.');
+                onExit();
+              }).catch(() => {
+                notify('Could not update inventory.');
+                onExit();
+              });
+            } else {
               onExit();
-            }).catch(() => {
-              notify('Could not update inventory.');
-              onExit();
-            });
-          } else {
-            onExit();
+            }
           }
-        }
 
-        // Send tool response back through WebSocket
-        const ws = sessionRef.current as WebSocket | null;
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          try {
-            ws.send(JSON.stringify({
-              toolResponse: {
-                functionResponses: { id: fc.id, name: fc.name, response: { result: "ok" } }
-              }
-            }));
-          } catch (_) {}
+          // Send tool response back through WebSocket
+          const ws = sessionRef.current as WebSocket | null;
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            try {
+              ws.send(JSON.stringify({
+                toolResponse: {
+                  functionResponses: { id: fc.id, name: fc.name, response: { result: "ok" } }
+                }
+              }));
+            } catch (_) {}
+          }
         }
+      };
+      // Brief delay so the thinking indicator is visible before the action executes
+      const thinkingDelayMs = 180;
+      const clearDelayMs = 550;
+      if (firstLabel) {
+        setTimeout(() => {
+          runTools();
+          setTimeout(() => setAiThinkingAction(null), clearDelayMs);
+        }, thinkingDelayMs);
+      } else {
+        runTools();
       }
     }
 
@@ -999,6 +1051,15 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
           style={{ width: `${((currentStep + 1) / stepsCount) * 100}%` }}
         />
       </div>
+
+      {aiThinkingAction && (
+        <div className="flex-shrink-0 px-4 py-2 bg-violet-100 border-b border-violet-200/60 animate-in fade-in duration-200">
+          <p className="text-violet-800 text-xs font-medium flex items-center justify-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" aria-hidden />
+            {aiThinkingAction}
+          </p>
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 overflow-y-auto px-4 py-5 flex flex-col gap-5">
         {showEmbeddedVideo && recipe.videoUrl && videoId && (

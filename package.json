@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:backend": "cd server && python main.py",
+    "run": "concurrently -n api,web -c blue,green \"npm run dev:backend\" \"npm run dev\"",
     "build": "vite build",
     "prebuild": "node scripts/generate-firebase-messaging-sw.mjs",
     "preview": "vite preview",
@@ -19,6 +21,7 @@
     "@types/node": "^22.14.0",
     "@vitejs/plugin-basic-ssl": "^2.1.4",
     "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.1.2",
     "sharp": "^0.34.5",
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
