@@ -146,7 +146,9 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: 
   /** 'agent' = play assistant TTS, video muted; 'video' = mute assistant, user hears iframe. */
   const [audioSource, setAudioSource] = useState<'agent' | 'video'>('agent');
   /** Kitchen Guidance accordion: closed by default; user can open it. */
-  const [kitchenGuidanceOpen, setKitchenGuidanceOpen] = useState(true);
+  const [kitchenGuidanceOpen, setKitchenGuidanceOpen] = useState(false);
+  /** Ingredients accordion: closed by default; listed below timer. */
+  const [ingredientsAccordionOpen, setIngredientsAccordionOpen] = useState(false);
   /** Assistant strip: open by default so full controls are visible on launch. */
   const [assistantExpanded, setAssistantExpanded] = useState(true);
 
@@ -851,6 +853,9 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
             contextWindowCompression: { slidingWindow: {} },
             systemInstruction: `You are the Pakao Assistant for "${recipe.title}". 
           
+          INGREDIENTS (quantities for ${recipe.servings ?? 1} ${(recipe.servings ?? 1) === 1 ? 'serving' : 'servings'}—use this to answer "what do we need?", "do we have X?", "list ingredients", etc.):
+          ${Array.isArray(recipe.ingredients) ? recipe.ingredients.filter((i): i is string => typeof i === 'string' && !!i.trim()).map((line, i) => `${i + 1}. ${line.trim()}`).join('\n          ') : 'None listed.'}
+          
           LANGUAGE: The user may speak in any language or mix (e.g. English, Hindi, Marathi, "step 7", "payari saat", "7th step vr chal"). ALWAYS interpret intent and act—never ignore or stay silent. Recognize numbers in any form (7, seven, saat, सात, etc.) as step numbers. Your responses and all speech must be ONLY in ${VOICE_LANGUAGE_OPTIONS.find((o) => o.code === appSettings.voiceLanguage)?.label ?? 'English'}. Recipe steps and UI are in English.
           
           GO TO STEP BY NUMBER (mixed language): When the user says a step number in any language or mix—e.g. "step 7", "7th step", "go to 7", "payari 7", "saatvan step", "number 7", "7 (saat) step (payari) vr chal", "step saat"—you MUST call goToStep(N-1) where N is that number (goToStep uses 0-based index). Extract the number from speech even if it's in Hindi/Marathi (ek=1, do=2, teen=3, char=4, paanch=5, chhe=6, saat=7, aath=8, nau=9, dus=10). Always respond and call the tool; do not say you didn't understand.
@@ -1184,6 +1189,43 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
                   </div>
                 </>
               )}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-sm border border-stone-200/80 overflow-hidden min-h-0 flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => setIngredientsAccordionOpen((o) => !o)}
+            className="w-full flex items-center justify-between gap-3 px-5 py-3.5 text-left hover:bg-stone-50/60 active:bg-stone-100/80 transition-colors rounded-2xl"
+            aria-expanded={ingredientsAccordionOpen}
+            aria-label={ingredientsAccordionOpen ? 'Collapse Ingredients' : 'Expand Ingredients'}
+          >
+            <span className="text-emerald-600 font-semibold text-[11px] uppercase tracking-wider">Ingredients</span>
+            {recipe.servings != null && recipe.servings !== 1 && (
+              <span className="text-[10px] text-stone-500 normal-case font-normal">for {recipe.servings} servings</span>
+            )}
+            <svg
+              className={`w-5 h-5 text-stone-400 flex-shrink-0 transition-transform duration-200 ${ingredientsAccordionOpen ? 'rotate-180' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {ingredientsAccordionOpen && (
+            <div className="px-5 pb-6 pt-1 border-t border-stone-100">
+              <ul className="space-y-1.5 text-[15px] leading-relaxed text-stone-700 list-none">
+                {Array.isArray(recipe.ingredients)
+                  ? recipe.ingredients.filter((i): i is string => typeof i === 'string' && !!i.trim()).map((line, i) => (
+                      <li key={i} className="flex gap-2">
+                        <span className="text-stone-400 shrink-0">{i + 1}.</span>
+                        <span>{line.trim()}</span>
+                      </li>
+                    ))
+                  : null}
+              </ul>
             </div>
           )}
         </div>
