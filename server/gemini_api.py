@@ -60,6 +60,11 @@ class GenerateRecipeRequest(BaseModel):
     alternatives: Optional[List[str]] = None
 
 
+class YouTubeTimestampsRequest(BaseModel):
+    url: Optional[str] = None
+    videoUrl: Optional[str] = None
+
+
 class TimestampSegment(BaseModel):
     timestamp: str
     content: str
@@ -293,6 +298,104 @@ async def generate_recipe(req: GenerateRecipeRequest):
             status_code=500,
             detail="We couldn't create that recipe. Give it another try!",
         )
+
+
+def _normalize_youtube_url(url: str) -> str:
+    """Normalize a YouTube URL to the standard format."""
+    import urllib.parse
+    parsed = urllib.parse.urlparse(url.strip())
+    hostname = parsed.hostname or ""
+    if hostname not in ("youtube.com", "www.youtube.com", "youtu.be"):
+        raise HTTPException(status_code=400, detail="Invalid YouTube URL")
+    if hostname == "youtu.be":
+        video_id = parsed.path.lstrip("/").split("/")[0]
+    else:
+        qs = urllib.parse.parse_qs(parsed.query)
+        video_id = qs.get("v", [""])[0]
+    if not video_id:
+        raise HTTPException(status_code=400, detail="Missing video ID in URL")
+    return f"https://www.youtube.com/watch?v={video_id}"
+
+
+@router.post("/youtube-timestamps")
+async def youtube_timestamps(req: YouTubeTimestampsRequest):
+    """Extract timestamped transcription from a YouTube video using Gemini.
+    Returns { videoUrl, summary, segments: [{ timestamp, content, speaker? }], createdAt }."""
+    video_url = (req.url or req.videoUrl or "").strip()
+    if not video_url:
+        raise HTTPException(status_code=400, detail="Missing url or videoUrl in body")
+
+    normalized_url = _normalize_youtube_url(video_url)
+    client = _get_client()
+
+    prompt = (
+        "Process this video and generate a detailed transcription with timestamps.\n\n"
+        "Requirements:\n"
+        "1. Provide a brief summary of the entire video at the beginning.\n"
+        "2. For each segment, provide:\n"
+        '   - timestamp: in MM:SS format (e.g. "00:00", "01:23")\n'
+        "   - content: the spoken text or main point of that segment\n"
+        '   - speaker: if you can identify distinct speakers, label them (e.g. "Speaker 1", "Host"); otherwise omit.\n'
+        "3. Order segments by time."
+    )
+
+    response = await client.aio.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=types.Content(
+            parts=[
+                types.Part(
+                    file_data=types.FileData(
+                        file_uri=normalized_url, mime_type="video/mp4"
+                    )
+                ),
+                types.Part(text=prompt),
+            ]
+        ),
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema={
+                "type": "OBJECT",
+                "properties": {
+                    "summary": {"type": "STRING", "description": "Brief summary of the video."},
+                    "segments": {
+                        "type": "ARRAY",
+                        "description": "List of segments with timestamp and content.",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "timestamp": {"type": "STRING"},
+                                "content": {"type": "STRING"},
+                                "speaker": {"type": "STRING"},
+                            },
+                            "required": ["timestamp", "content"],
+                        },
+                    },
+                },
+                "required": ["summary", "segments"],
+            },
+        ),
+    )
+
+    raw = response.text or "{}"
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Gemini returned invalid JSON for timestamps.")
+
+    segments = []
+    for s in parsed.get("segments", []):
+        seg = {"timestamp": str(s.get("timestamp", "")), "content": str(s.get("content", ""))}
+        if s.get("speaker"):
+            seg["speaker"] = str(s["speaker"])
+        segments.append(seg)
+
+    from datetime import datetime, timezone
+    return {
+        "videoUrl": normalized_url,
+        "summary": str(parsed.get("summary", "")),
+        "segments": segments,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @router.post("/recipe-from-youtube")

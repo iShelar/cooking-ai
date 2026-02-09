@@ -11,17 +11,11 @@ export interface YouTubeTimestampResult {
   createdAt: string;
 }
 
-const getTimestampServiceUrl = () =>
-  (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_TIMESTAMP_SERVICE_URL) ||
-  "http://localhost:3001";
-
-/** Fetch timestamps from the Node service; cache result in localStorage. */
+/** Fetch timestamps from the backend; cache result in localStorage. */
 export async function fetchTimestampsForUrl(videoUrl: string): Promise<YouTubeTimestampResult> {
   const url = videoUrl.trim();
-  const base = getTimestampServiceUrl();
-  const res = await fetch(`${base}/timestamps`, {
+  const res = await apiFetch("/api/youtube-timestamps", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url }),
   });
   if (!res.ok) {

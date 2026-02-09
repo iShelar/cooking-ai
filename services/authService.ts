@@ -38,17 +38,12 @@ export function signInAsAnonymous(): Promise<UserCredential> {
 }
 
 /**
- * Sign in as shared guest (same UID for everyone). Requires a backend that returns a custom token for SHARED_GUEST_UID.
- * Set VITE_GUEST_TOKEN_URL to your endpoint that returns { token: string }. Example Cloud Function:
- *   const token = await admin.auth().createCustomToken('guest');
- *   res.json({ token });
+ * Sign in as shared guest (same UID for everyone).
+ * Calls the backend /api/guest-token endpoint which uses Firebase Admin SDK
+ * to create a custom token for the shared guest UID.
  */
 export async function signInAsSharedGuest(): Promise<UserCredential> {
-  const url = import.meta.env.VITE_GUEST_TOKEN_URL as string | undefined;
-  if (!url?.trim()) {
-    return signInAnonymously(auth);
-  }
-  const res = await fetch(url);
+  const res = await fetch('/api/guest-token');
   if (!res.ok) throw new Error("We couldn't sign you in as guest. Try again?");
   const body = (await res.json()) as { token?: string };
   const token = body?.token;

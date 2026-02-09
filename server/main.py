@@ -70,6 +70,33 @@ async def health():
     return {"status": "ok", "model": MODEL}
 
 
+@app.get("/api/guest-token")
+async def guest_token():
+    """Return a Firebase custom token for the shared guest UID.
+    This endpoint is intentionally unauthenticated — it's used by users
+    who haven't signed in yet (Continue as Guest flow)."""
+    import firebase_admin
+    from firebase_admin import auth as fb_auth
+
+    GUEST_UID = "guest"
+
+    try:
+        # Ensure Firebase Admin is initialised (share_preview does this too)
+        if not firebase_admin._apps:
+            from share_preview import _get_firestore
+            _get_firestore()  # triggers firebase_admin.initialize_app(...)
+
+        token = fb_auth.create_custom_token(GUEST_UID)
+        return {"token": token.decode() if isinstance(token, bytes) else token}
+    except Exception as e:
+        logger.error("guest-token error: %s", e)
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)},
+        )
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """
