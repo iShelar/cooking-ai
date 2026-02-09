@@ -15,6 +15,7 @@ import os
 import re
 from datetime import datetime, timezone
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -101,10 +102,21 @@ def _parse_time(hhmm: str) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _user_local_minutes(utc_now: datetime, tz_name: str) -> int:
+    """Current time in user's timezone as minutes since midnight (0–1439)."""
+    tz_name = (tz_name or "").strip() or "UTC"
+    try:
+        user_tz = ZoneInfo(tz_name)
+    except Exception:
+        user_tz = timezone.utc
+    local = utc_now.astimezone(user_tz)
+    return local.hour * 60 + local.minute
+
+
 async def _run_meal_reminders(override_utc_minutes: Optional[int] = None) -> dict:
     """
     Check all users with FCM tokens and send push notifications
-    for any meal whose reminder window includes the current UTC time.
+    for any meal whose reminder window includes the current time in the user's timezone.
 
     Returns { sent, errors, skipped, error_details }.
     """
@@ -118,7 +130,6 @@ async def _run_meal_reminders(override_utc_minutes: Optional[int] = None) -> dic
     db = _get_firestore()
 
     now = datetime.now(timezone.utc)
-    utc_minutes = override_utc_minutes if override_utc_minutes is not None else (now.hour * 60 + now.minute)
 
     subs_snap = db.collection(PUSH_SUBSCRIPTIONS).stream()
     sent = 0
@@ -136,7 +147,7 @@ async def _run_meal_reminders(override_utc_minutes: Optional[int] = None) -> dic
         user_id = doc_snap.id
 
         try:
-            # Read meal reminder times
+            # Read meal reminder times and timezone
             settings_snap = db.document(f"users/{user_id}/appSettings/user").get()
             settings = settings_snap.to_dict() or {} if settings_snap.exists else {}
 
@@ -144,49 +155,73 @@ async def _run_meal_reminders(override_utc_minutes: Optional[int] = None) -> dic
             lunch = _parse_time(settings.get("lunchReminderTime", "13:00"))
             dinner = _parse_time(settings.get("dinnerReminderTime", "19:00"))
 
+            # Current time in user's local timezone (for testing, override uses UTC minutes)
+            if override_utc_minutes is not None:
+                local_minutes = override_utc_minutes
+            else:
+                tz_name = (settings.get("timezone") or "").strip() or "UTC"
+                local_minutes = _user_local_minutes(now, tz_name)
+
             meal_label: Optional[str] = None
-            if breakfast <= utc_minutes < breakfast + REMINDER_WINDOW_MINUTES:
+            if breakfast <= local_minutes < breakfast + REMINDER_WINDOW_MINUTES:
                 meal_label = "Breakfast"
-            elif lunch <= utc_minutes < lunch + REMINDER_WINDOW_MINUTES:
+            elif lunch <= local_minutes < lunch + REMINDER_WINDOW_MINUTES:
                 meal_label = "Lunch"
-            elif dinner <= utc_minutes < dinner + REMINDER_WINDOW_MINUTES:
+            elif dinner <= local_minutes < dinner + REMINDER_WINDOW_MINUTES:
                 meal_label = "Dinner"
 
             if not meal_label:
                 skipped += 1
                 continue
 
-            # Fetch recipes, inventory, preferences
-            recipes_snap = db.collection(f"users/{user_id}/recipes").stream()
-            inventory_snap = db.collection(f"users/{user_id}/inventory").stream()
-            prefs_snap = db.document(f"users/{user_id}/preferences/user").get()
+            # Planned recipe for this meal? (breakfastRecipeId, lunchRecipeId, dinnerRecipeId)
+            meal_key = {"Breakfast": "breakfastRecipeId", "Lunch": "lunchRecipeId", "Dinner": "dinnerRecipeId"}.get(meal_label, "")
+            planned_recipe_id = (settings.get(meal_key) or "").strip() if meal_key else ""
+            planned_title: Optional[str] = None
+            if planned_recipe_id:
+                try:
+                    recipe_doc = db.document(f"users/{user_id}/recipes/{planned_recipe_id}").get()
+                    if recipe_doc.exists:
+                        planned_title = (recipe_doc.to_dict() or {}).get("title", "").strip() or None
+                except Exception:
+                    planned_title = None
 
-            recipes = []
-            for r in recipes_snap:
-                rd = r.to_dict() or {}
-                recipes.append(
-                    {
-                        "id": r.id,
-                        "title": rd.get("title", ""),
-                        "ingredients": rd.get("ingredients", []) if isinstance(rd.get("ingredients"), list) else [],
-                        "lastPreparedAt": rd.get("lastPreparedAt"),
-                    }
-                )
+            if planned_title:
+                body = f"You planned: {planned_title}"
+                link_path = f"/?open=recipe&id={planned_recipe_id}"
+                link_url = f"{APP_BASE_URL}{link_path}"
+            else:
+                # Fetch recipes, inventory, preferences for suggestions
+                recipes_snap = db.collection(f"users/{user_id}/recipes").stream()
+                inventory_snap = db.collection(f"users/{user_id}/inventory").stream()
+                prefs_snap = db.document(f"users/{user_id}/preferences/user").get()
 
-            inventory_names = [
-                (inv.to_dict() or {}).get("name", "").strip().lower()
-                for inv in inventory_snap
-                if (inv.to_dict() or {}).get("name")
-            ]
+                recipes = []
+                for r in recipes_snap:
+                    rd = r.to_dict() or {}
+                    recipes.append(
+                        {
+                            "id": r.id,
+                            "title": rd.get("title", ""),
+                            "ingredients": rd.get("ingredients", []) if isinstance(rd.get("ingredients"), list) else [],
+                            "lastPreparedAt": rd.get("lastPreparedAt"),
+                        }
+                    )
 
-            prefs = prefs_snap.to_dict() or {} if prefs_snap.exists else {}
-            liked_recipe_ids = prefs.get("likedRecipeIds", []) if isinstance(prefs.get("likedRecipeIds"), list) else []
+                inventory_names = [
+                    (inv.to_dict() or {}).get("name", "").strip().lower()
+                    for inv in inventory_snap
+                    if (inv.to_dict() or {}).get("name")
+                ]
 
-            titles = _get_suggested_recipe_titles(recipes, liked_recipe_ids, inventory_names, 2)
-            body = f"Suggested: {', '.join(titles)}" if titles else "Check your recipe suggestions."
+                prefs = prefs_snap.to_dict() or {} if prefs_snap.exists else {}
+                liked_recipe_ids = prefs.get("likedRecipeIds", []) if isinstance(prefs.get("likedRecipeIds"), list) else []
 
-            # Send FCM push notification (link must be a full HTTPS URL). Open suggestions when clicked.
-            suggestions_url = f"{APP_BASE_URL}/?open=suggestions"
+                titles = _get_suggested_recipe_titles(recipes, liked_recipe_ids, inventory_names, 2)
+                body = f"Suggested: {', '.join(titles)}" if titles else "Check your recipe suggestions."
+                link_path = "/?open=suggestions"
+                link_url = f"{APP_BASE_URL}{link_path}"
+
             message = messaging.Message(
                 token=fcm_token,
                 notification=messaging.Notification(
@@ -194,9 +229,9 @@ async def _run_meal_reminders(override_utc_minutes: Optional[int] = None) -> dic
                     body=body,
                 ),
                 webpush=messaging.WebpushConfig(
-                    fcm_options=messaging.WebpushFCMOptions(link=suggestions_url),
+                    fcm_options=messaging.WebpushFCMOptions(link=link_url),
                 ),
-                data={"url": "/?open=suggestions", "meal": meal_label},
+                data={"url": link_path, "meal": meal_label},
             )
             messaging.send(message)
             sent += 1
@@ -217,7 +252,7 @@ async def _run_meal_reminders(override_utc_minutes: Optional[int] = None) -> dic
 
 
 class TriggerRequest(BaseModel):
-    utc_minutes: Optional[int] = None  # Override UTC time (minutes since midnight) for testing
+    utc_minutes: Optional[int] = None  # Override: minutes since midnight (local) for all users when testing
 
 
 @router.post("/trigger")
@@ -225,8 +260,9 @@ async def trigger_meal_reminders(req: TriggerRequest = TriggerRequest()):
     """
     Manually trigger the meal reminder check.
 
-    For testing, pass { "utc_minutes": 480 } to simulate 08:00 UTC,
-    or omit to use the real current UTC time.
+    Uses each user's timezone: reminders fire when it's breakfast/lunch/dinner
+    time in their local timezone. For testing, pass { "utc_minutes": 480 } to
+    simulate 08:00 local for every user; omit to use real current time per timezone.
     """
     try:
         result = await _run_meal_reminders(override_utc_minutes=req.utc_minutes)

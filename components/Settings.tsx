@@ -252,9 +252,10 @@ const Settings: React.FC<SettingsProps> = ({ userId, onBack, onSaved, onPreferen
           <h2 className="text-sm font-semibold text-stone-400 uppercase tracking-wider px-6 py-3 border-b border-stone-100">
             Meal reminders
           </h2>
-          <p className="px-6 py-2 text-sm text-stone-500">Default times for breakfast, lunch, and dinner. Suggestions and reminders use these.</p>
+          <p className="px-6 py-2 text-sm text-stone-500">Reminder times for breakfast, lunch and dinner. Push reminders are sent at these times in your timezone. Set a recipe per meal from the recipe detail page.</p>
+          <p className="px-6 py-1 text-xs text-stone-400">Timezone: {settings.timezone}</p>
           <div className="divide-y divide-stone-100">
-            <div className="px-6 py-4 flex items-center justify-between gap-4">
+            <div className="px-6 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
                 <p className="font-medium text-stone-800">Breakfast</p>
                 <p className="text-sm text-stone-500">Reminder time</p>
@@ -263,10 +264,10 @@ const Settings: React.FC<SettingsProps> = ({ userId, onBack, onSaved, onPreferen
                 type="time"
                 value={settings.breakfastReminderTime}
                 onChange={(e) => update({ breakfastReminderTime: e.target.value })}
-                className="bg-stone-100 rounded-xl py-2 px-4 text-sm font-medium text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="bg-stone-100 rounded-xl py-2 px-4 text-sm font-medium text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 w-full sm:w-auto"
               />
             </div>
-            <div className="px-6 py-4 flex items-center justify-between gap-4">
+            <div className="px-6 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
                 <p className="font-medium text-stone-800">Lunch</p>
                 <p className="text-sm text-stone-500">Reminder time</p>
@@ -275,10 +276,10 @@ const Settings: React.FC<SettingsProps> = ({ userId, onBack, onSaved, onPreferen
                 type="time"
                 value={settings.lunchReminderTime}
                 onChange={(e) => update({ lunchReminderTime: e.target.value })}
-                className="bg-stone-100 rounded-xl py-2 px-4 text-sm font-medium text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="bg-stone-100 rounded-xl py-2 px-4 text-sm font-medium text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 w-full sm:w-auto"
               />
             </div>
-            <div className="px-6 py-4 flex items-center justify-between gap-4">
+            <div className="px-6 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
                 <p className="font-medium text-stone-800">Dinner</p>
                 <p className="text-sm text-stone-500">Reminder time</p>
@@ -287,7 +288,7 @@ const Settings: React.FC<SettingsProps> = ({ userId, onBack, onSaved, onPreferen
                 type="time"
                 value={settings.dinnerReminderTime}
                 onChange={(e) => update({ dinnerReminderTime: e.target.value })}
-                className="bg-stone-100 rounded-xl py-2 px-4 text-sm font-medium text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="bg-stone-100 rounded-xl py-2 px-4 text-sm font-medium text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 w-full sm:w-auto"
               />
             </div>
           </div>

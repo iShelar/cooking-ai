@@ -204,12 +204,27 @@ export interface AppSettings {
   defaultServings: number;
   /** Play sound for timer finish. */
   timerSound: boolean;
-  /** Meal reminder times (HH:mm, 24h). User can change in Settings. */
+  /** Meal reminder times (HH:mm, 24h) in user's local timezone. User can change in Settings. */
   breakfastReminderTime: string;
   lunchReminderTime: string;
   dinnerReminderTime: string;
+  /** IANA timezone (e.g. "Asia/Kolkata") for meal reminder push notifications. Defaults to browser-detected. */
+  timezone: string;
+  /** Optional recipe ID for each meal; if set, reminder says "You planned: [title]" and links to that recipe. */
+  breakfastRecipeId?: string;
+  lunchRecipeId?: string;
+  dinnerRecipeId?: string;
   /** FCM token for push notifications (meal/suggestion reminders). Set when user enables notifications. */
   fcmToken?: string;
+}
+
+/** Get browser timezone (e.g. "Asia/Kolkata") or "UTC" if unavailable. */
+export function getBrowserTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -222,6 +237,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   breakfastReminderTime: '08:00',
   lunchReminderTime: '13:00',
   dinnerReminderTime: '19:00',
+  timezone: 'UTC',
 };
 
 export enum AppView {

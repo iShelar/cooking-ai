@@ -111,15 +111,31 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // When opened from meal reminder notification (?open=suggestions), show Suggestions view once user is logged in.
+  // When opened from meal reminder notification (?open=suggestions or ?open=recipe&id=...), show the right view once user is logged in.
   useEffect(() => {
     if (typeof window === 'undefined' || !authUser || !authChecked) return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get('open') !== 'suggestions') return;
-    setCurrentView(AppView.Suggestions);
-    const cleanUrl = window.location.pathname || '/';
-    window.history.replaceState({ view: AppView.Suggestions }, '', cleanUrl);
-  }, [authUser, authChecked]);
+    const open = params.get('open');
+    if (open === 'suggestions') {
+      setCurrentView(AppView.Suggestions);
+      const cleanUrl = window.location.pathname || '/';
+      window.history.replaceState({ view: AppView.Suggestions }, '', cleanUrl);
+      return;
+    }
+    if (open === 'recipe') {
+      const recipeId = params.get('id')?.trim();
+      if (recipeId) {
+        const recipe = recipesRef.current.find((r) => r.id === recipeId);
+        if (recipe) {
+          setSelectedRecipe(recipe);
+          setScaledRecipe(recipe);
+          setCurrentView(AppView.RecipeDetail);
+          const cleanUrl = window.location.pathname || '/';
+          window.history.replaceState({ view: AppView.RecipeDetail, recipeId }, '', cleanUrl);
+        }
+      }
+    }
+  }, [authUser, authChecked, recipes]);
 
   // Backend health check: poll periodically and show "Start the backend" banner when down.
   useEffect(() => {
@@ -1156,6 +1172,37 @@ const App: React.FC = () => {
             )}
             <p className="text-stone-500 leading-relaxed">{selectedRecipe.description}</p>
           </div>
+
+          {authUser && (
+            <div className="py-3 border-y border-stone-100">
+              <p className="text-xs text-stone-400 font-bold uppercase mb-2">Meal reminder</p>
+              <p className="text-sm text-stone-500 mb-3">Use for breakfast, lunch or dinner — we&apos;ll remind you with this recipe.</p>
+              <div className="flex flex-wrap gap-2">
+                {(['Breakfast', 'Lunch', 'Dinner'] as const).map((meal) => {
+                  const key = meal === 'Breakfast' ? 'breakfastRecipeId' : meal === 'Lunch' ? 'lunchRecipeId' : 'dinnerRecipeId';
+                  const isSet = appSettings[key] === selectedRecipe.id;
+                  return (
+                    <button
+                      key={meal}
+                      type="button"
+                      onClick={() => {
+                        const next = { ...appSettings, [key]: isSet ? undefined : selectedRecipe.id };
+                        setAppSettings(next);
+                        saveAppSettings(authUser.uid, next).catch(() => {});
+                      }}
+                      className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+                        isSet
+                          ? 'bg-emerald-500 text-white hover:bg-emerald-600'
+                          : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                      }`}
+                    >
+                      {isSet ? `${meal} ✓` : meal}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="flex justify-between items-center py-4 border-y border-stone-100">
             <div className="text-center">

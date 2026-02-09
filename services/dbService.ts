@@ -1,6 +1,6 @@
 import { getDoc, setDoc, doc, getDocs, collection, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from './firebase';
-import { Recipe, UserPreferences, AppSettings, DEFAULT_APP_SETTINGS, InventoryItem, ShoppingListItem } from '../types';
+import { Recipe, UserPreferences, AppSettings, DEFAULT_APP_SETTINGS, getBrowserTimezone, InventoryItem, ShoppingListItem } from '../types';
 import {
   getRecipesFromFirestore,
   updateRecipeInFirestore,
@@ -63,9 +63,9 @@ export const getAppSettings = async (userId: string): Promise<AppSettings> => {
   try {
     const ref = doc(db, 'users', userId, 'appSettings', 'user');
     const snap = await getDoc(ref);
-    if (!snap.exists()) return { ...DEFAULT_APP_SETTINGS };
+    if (!snap.exists()) return { ...DEFAULT_APP_SETTINGS, timezone: getBrowserTimezone() };
     const data = snap.data();
-    return {
+    const settings: AppSettings = {
       ...DEFAULT_APP_SETTINGS,
       units: (data?.units as AppSettings['units']) ?? DEFAULT_APP_SETTINGS.units,
       voiceSpeed: typeof data?.voiceSpeed === 'number' ? data.voiceSpeed : DEFAULT_APP_SETTINGS.voiceSpeed,
@@ -76,11 +76,20 @@ export const getAppSettings = async (userId: string): Promise<AppSettings> => {
       breakfastReminderTime: typeof data?.breakfastReminderTime === 'string' ? data.breakfastReminderTime : DEFAULT_APP_SETTINGS.breakfastReminderTime,
       lunchReminderTime: typeof data?.lunchReminderTime === 'string' ? data.lunchReminderTime : DEFAULT_APP_SETTINGS.lunchReminderTime,
       dinnerReminderTime: typeof data?.dinnerReminderTime === 'string' ? data.dinnerReminderTime : DEFAULT_APP_SETTINGS.dinnerReminderTime,
+      timezone: typeof data?.timezone === 'string' ? data.timezone : getBrowserTimezone(),
+      breakfastRecipeId: typeof data?.breakfastRecipeId === 'string' && data.breakfastRecipeId ? data.breakfastRecipeId : undefined,
+      lunchRecipeId: typeof data?.lunchRecipeId === 'string' && data.lunchRecipeId ? data.lunchRecipeId : undefined,
+      dinnerRecipeId: typeof data?.dinnerRecipeId === 'string' && data.dinnerRecipeId ? data.dinnerRecipeId : undefined,
       fcmToken: typeof data?.fcmToken === 'string' ? data.fcmToken : undefined,
     };
+    // Persist browser-detected timezone so backend meal reminders use it
+    if (typeof (data?.timezone as string) !== 'string') {
+      setDoc(ref, { timezone: settings.timezone }, { merge: true }).catch(() => {});
+    }
+    return settings;
   } catch (err) {
     console.warn('Firestore getAppSettings failed:', err);
-    return { ...DEFAULT_APP_SETTINGS };
+    return { ...DEFAULT_APP_SETTINGS, timezone: getBrowserTimezone() };
   }
 };
 
@@ -88,6 +97,9 @@ export const saveAppSettings = async (userId: string, settings: AppSettings): Pr
   const ref = doc(db, 'users', userId, 'appSettings', 'user');
   const data: Record<string, unknown> = { ...settings };
   if (settings.fcmToken === undefined) delete data.fcmToken;
+  if (settings.breakfastRecipeId === undefined) delete data.breakfastRecipeId;
+  if (settings.lunchRecipeId === undefined) delete data.lunchRecipeId;
+  if (settings.dinnerRecipeId === undefined) delete data.dinnerRecipeId;
   await setDoc(ref, data, { merge: true });
 };
 
