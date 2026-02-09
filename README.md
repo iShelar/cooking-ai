@@ -10,39 +10,45 @@ View your app in AI Studio: https://ai.studio/apps/drive/1q4PwPz4BX_IElsBhDK1tst
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
+**Prerequisites:**  Node.js, Python 3.10+
 
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+2. Set the Firebase config vars in [.env.local](.env.local)
 3. **Firestore (recipes):** In [Firebase Console](https://console.firebase.google.com) → your project → **Build** → **Firestore Database**:
-   - Click **Create database** if you haven’t already (start in test mode).
+   - Click **Create database** if you haven't already (start in test mode).
    - Open the **Rules** tab and paste the contents of [firestore.rules](firestore.rules), then **Publish**. This allows the app to read/write the `recipes` collection.
 4. Run the app:
    `npm run dev`
 
+### Python backend
+
+All AI endpoints, voice proxy, share preview, YouTube timestamp extraction, and guest sign-in are handled by the Python backend. Run it alongside the Vite dev server:
+
+```bash
+cd server && pip install -r requirements.txt && python main.py
+```
+
+It runs at `http://localhost:8080`. The Vite dev server proxies `/api`, `/ws`, and `/share` to it automatically.
+
+**Configuration:** Create `server/.env` with:
+- `GEMINI_API_KEY` — your Gemini API key
+- `FIREBASE_PROJECT_ID` — your Firebase project ID (for auth token verification)
+- Place your Firebase service account JSON at `server/serviceAccountKey.json` (for guest tokens and share preview Firestore access)
+
 ### Anonymous / guest login
 
 - **Continue as guest** on the login screen signs in with Firebase Anonymous Auth (no backend needed). Each device gets its own persistent UID; data is per device.
-- **Same ID for everyone (shared guest):** The **youtube-timestamp-service** backend exposes `GET /guest-token`, which returns `{ "token": "<customToken>" }`. Run that backend, then in the app’s `.env.local` set `VITE_GUEST_TOKEN_URL=http://localhost:3001/guest-token` (or your deployed backend URL). The backend needs Firebase Admin credentials: set `GOOGLE_APPLICATION_CREDENTIALS` to the path of your Firebase service account JSON (Firebase Console → Project settings → Service accounts → Generate new private key). Firestore rules must allow read/write for `users/guest/...` when `request.auth.uid == 'guest'`.
+- **Same ID for everyone (shared guest):** The Python backend exposes `GET /api/guest-token`, which returns `{ "token": "<customToken>" }`. It uses the Firebase service account key at `server/serviceAccountKey.json`. Firestore rules must allow read/write for `users/guest/...` when `request.auth.uid == 'guest'`.
 
-### Create recipe from YouTube (optional)
+### Create recipe from YouTube
 
-To use **Create from YouTube** (turn a cooking video into a recipe you can follow step-by-step with the video):
-
-1. In another terminal, run the video service:
-   ```bash
-   cd youtube-timestamp-service && npm install && npm run server
-   ```
-   It runs at `http://localhost:3001`. The app will call it when you paste a YouTube link and create a recipe.
-
-2. Or run the CLI and paste the JSON:  
-   `node src/index.js "https://www.youtube.com/watch?v=..."` then copy the generated file from `data/` and paste into the app’s **Create from YouTube** screen.
+**Create from YouTube** (turn a cooking video into a recipe you can follow step-by-step with the video) is handled by the Python backend endpoint `POST /api/youtube-timestamps`. No separate service is needed — just make sure the backend is running.
 
 ## Share recipe
 
-From a recipe’s detail screen, tap **Share** (icon in the header). The app creates a link and copies it to the clipboard. Anyone with the link can open the recipe (read-only) and, if signed in, tap **Save to my recipes** to add a copy to their collection. Shared data is stored in the `sharedRecipes` Firestore collection (see [firestore.rules](firestore.rules)). When deploying, ensure your host serves the app’s `index.html` for paths under `/share/*` (SPA fallback) so share links work.
+From a recipe's detail screen, tap **Share** (icon in the header). The app creates a link and copies it to the clipboard. Anyone with the link can open the recipe (read-only) and, if signed in, tap **Save to my recipes** to add a copy to their collection. Shared data is stored in the `sharedRecipes` Firestore collection (see [firestore.rules](firestore.rules)). The Python backend serves Open Graph meta tags at `/share/{token}` for social-media previews and redirects human visitors to the SPA.
 
 ## Push notifications (meal reminders)
 
@@ -68,7 +74,7 @@ The app is set up as a PWA so users can install it on their phone or desktop (Ad
   ```bash
   yarn run generate-pwa-icons
   ```
-- **Install:** Deploy over **HTTPS**; then users can install via the browser’s install prompt or menu.
+- **Install:** Deploy over **HTTPS**; then users can install via the browser's install prompt or menu.
 - **Offline:** The app shell and static assets are cached. Auth and live data (Firebase, Gemini) still require a connection.
 
 <!-- Features -->
