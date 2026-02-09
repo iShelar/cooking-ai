@@ -8,6 +8,49 @@ function coreName(ingredient: string): string {
   return withoutLeadingNumber || lower;
 }
 
+/**
+ * Reduce a long ingredient name to a short, canonical form for display in shopping list and inventory.
+ * e.g. "fresh basil leaves" -> "basil", "cloves garlic, minced" -> "garlic", "extra-virgin olive oil" -> "olive oil"
+ */
+export function toShortIngredientName(ingredientName: string): string {
+  let s = (ingredientName ?? '').trim().toLowerCase();
+  if (!s) return '';
+
+  // Take main part before comma (e.g. "garlic, minced" -> "garlic")
+  const commaIdx = s.indexOf(',');
+  if (commaIdx !== -1) s = s.slice(0, commaIdx).trim();
+
+  // Remove parentheticals
+  s = s.replace(/\s*\([^)]*\)\s*/g, ' ').trim();
+
+  // Remove common leading modifiers (order matters for multi-word)
+  const leadingModifiers = [
+    'fresh ', 'dried ', 'frozen ', 'canned ', 'raw ', 'cooked ',
+    'extra-virgin ', 'virgin ', 'all-purpose ', 'plain ', 'self-rising ',
+    'unsalted ', 'salted ', 'whole ', 'low-fat ', 'full-fat ', 'non-fat ',
+    'large ', 'medium ', 'small ', 'minced ', 'chopped ', 'diced ', 'sliced ',
+    'grated ', 'crushed ', 'whole ', 'ground ', 'boneless ', 'skinless ',
+  ];
+  for (const mod of leadingModifiers) {
+    if (s.startsWith(mod)) {
+      s = s.slice(mod.length).trim();
+      break;
+    }
+  }
+
+  // Remove common trailing words that are descriptors, not the main noun
+  const trailingWords = /\s+(leaves?|sprigs?|cloves?|stalks?|pieces?|slices?|cubes?|strips?|fillet|breast|thighs?|wings?|legs?)$/i;
+  s = s.replace(trailingWords, '').trim();
+
+  // Remove any remaining trailing comma fragments and trim
+  s = s.replace(/,+\s*$/, '').trim();
+
+  // Collapse multiple spaces
+  s = s.replace(/\s+/g, ' ').trim();
+
+  return s || (ingredientName ?? '').trim().toLowerCase();
+}
+
 /** Parse "100 ml water" -> { name: "water", quantity: "100 ml" }; "2 eggs" -> { name: "eggs", quantity: "2" }. */
 function parseIngredientLine(line: string): { name: string; quantity?: string } {
   const s = line.trim();
@@ -43,24 +86,46 @@ function isInInventory(ingredient: string, inventory: InventoryItem[]): boolean 
 }
 
 /**
+ * Returns raw recipe ingredient lines that are not in the user's inventory.
+ * Use with normalizeIngredients (Gemini) for short name + quantity, or parse locally as fallback.
+ */
+export function getMissingIngredientLines(recipe: Recipe, inventory: InventoryItem[]): string[] {
+  const ingredients = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
+  return ingredients
+    .filter((ing) => typeof ing === 'string' && ing.trim() && !isInInventory(ing.trim(), inventory))
+    .map((ing) => (ing as string).trim());
+}
+
+/**
  * Returns recipe ingredients that are not in the user's inventory,
- * parsed into name + quantity so the shopping list shows them cleanly (e.g. "water" + "100 ml").
+ * as short name + quantity (rule-based). Use when Gemini normalize is unavailable.
  */
 export function getMissingIngredientsForRecipe(
   recipe: Recipe,
   inventory: InventoryItem[]
 ): { name: string; quantity?: string }[] {
-  const ingredients = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
-  return ingredients
-    .filter((ing) => typeof ing === 'string' && ing.trim() && !isInInventory(ing.trim(), inventory))
-    .map((ing) => parseIngredientLine((ing as string).trim()));
+  const lines = getMissingIngredientLines(recipe, inventory);
+  return lines.map((line) => {
+    const parsed = parseIngredientLine(line);
+    return {
+      name: toShortIngredientName(parsed.name),
+      quantity: parsed.quantity,
+    };
+  });
 }
 
 function nameMatches(ingCore: string, inv: InventoryItem): boolean {
   const invCore = coreName(inv.name);
-  return invCore === ingCore ||
+  const invShort = toShortIngredientName(inv.name);
+  const ingShort = toShortIngredientName(ingCore);
+  return (
+    invCore === ingCore ||
+    invShort === ingShort ||
     inv.name.trim().toLowerCase().includes(ingCore) ||
-    ingCore.includes(inv.name.trim().toLowerCase());
+    ingCore.includes(inv.name.trim().toLowerCase()) ||
+    ingShort.includes(invShort) ||
+    invShort.includes(ingShort)
+  );
 }
 
 /**

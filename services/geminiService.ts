@@ -58,6 +58,50 @@ export const getRecipeRecommendations = async (ingredients: string[]) => {
   return res.json();
 };
 
+/**
+ * Use Gemini to normalize long ingredient lines to short name + quantity for shopping/inventory.
+ * Returns same order as input. Use when adding from "missing ingredients" or parsed grocery lists.
+ */
+export const normalizeIngredients = async (
+  ingredients: string[]
+): Promise<{ name: string; quantity?: string }[]> => {
+  if (!ingredients.length) return [];
+  const res = await apiFetch('/api/normalize-ingredients', {
+    method: 'POST',
+    body: JSON.stringify({ ingredients }),
+  });
+  checkRateLimit(res);
+  if (!res.ok) throw new Error('Failed to normalize ingredients');
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+};
+
+/**
+ * Use Gemini to compute how to deduct recipe ingredients from inventory (reasoning about matching names).
+ * Returns updates to apply: { itemId, newQuantity } where newQuantity is null to remove the item.
+ */
+export const getInventoryUpdatesForRecipeFromAPI = async (
+  recipeIngredients: string[],
+  inventory: { id: string; name: string; quantity?: string }[]
+): Promise<{ itemId: string; newQuantity: string | null }[]> => {
+  if (!recipeIngredients.length || !inventory.length) return [];
+  const res = await apiFetch('/api/inventory-updates-for-recipe', {
+    method: 'POST',
+    body: JSON.stringify({
+      recipe_ingredients: recipeIngredients,
+      inventory: inventory.map((i) => ({ id: i.id, name: i.name, quantity: i.quantity ?? undefined })),
+    }),
+  });
+  checkRateLimit(res);
+  if (!res.ok) throw new Error('Failed to compute inventory updates');
+  const data = await res.json();
+  if (!Array.isArray(data)) return [];
+  return data.map((u: { itemId: string; newQuantity?: string | null }) => ({
+    itemId: u.itemId,
+    newQuantity: u.newQuantity == null || u.newQuantity === '' ? null : String(u.newQuantity),
+  }));
+};
+
 /** Generate a full recipe from a short description or dish name (e.g. "pasta carbonara", "quick egg breakfast"). */
 export const generateRecipeFromDescription = async (
   description: string,

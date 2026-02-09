@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Recipe, AppSettings, DEFAULT_APP_SETTINGS, VOICE_LANGUAGE_OPTIONS } from '../types';
-import { decodeAudioData } from '../services/geminiService';
+import { decodeAudioData, getInventoryUpdatesForRecipeFromAPI } from '../services/geminiService';
 import { getAuthToken } from '../services/apiClient';
-import { subtractRecipeIngredientsFromInventory } from '../services/dbService';
+import { getInventory, applyInventoryUpdates } from '../services/dbService';
+import { getInventoryUpdatesForRecipe } from '../services/shoppingListService';
 import { resampleTo16k, float32ToInt16Pcm, BATCH_SAMPLES_16K } from '../services/voiceAudioUtils';
 
 interface CookingModeProps {
@@ -728,13 +729,23 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
           }
           else if (fc.name === 'finishRecipe') {
             if (userId) {
-              subtractRecipeIngredientsFromInventory(userId, recipe).then(() => {
-                notify('Ingredients subtracted from inventory.');
+              (async () => {
+                try {
+                  const inventory = await getInventory(userId);
+                  const ingredients = Array.isArray(recipe.ingredients) ? recipe.ingredients.filter((i): i is string => typeof i === 'string' && !!i.trim()) : [];
+                  let updates: { itemId: string; newQuantity: string | null }[];
+                  try {
+                    updates = await getInventoryUpdatesForRecipeFromAPI(ingredients, inventory);
+                  } catch {
+                    updates = getInventoryUpdatesForRecipe(recipe, inventory);
+                  }
+                  await applyInventoryUpdates(userId, updates);
+                  notify('Ingredients subtracted from inventory.');
+                } catch {
+                  notify('Could not update inventory.');
+                }
                 onExit();
-              }).catch(() => {
-                notify('Could not update inventory.');
-                onExit();
-              });
+              })();
             } else {
               onExit();
             }
@@ -1002,15 +1013,21 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
   const handleFinishRecipe = useCallback(async () => {
     if (userId) {
       try {
-        await subtractRecipeIngredientsFromInventory(userId, recipe);
+        const inventory = await getInventory(userId);
+        const ingredients = Array.isArray(recipe.ingredients) ? recipe.ingredients.filter((i): i is string => typeof i === 'string' && !!i.trim()) : [];
+        let updates: { itemId: string; newQuantity: string | null }[];
+        try {
+          updates = await getInventoryUpdatesForRecipeFromAPI(ingredients, inventory);
+        } catch {
+          updates = getInventoryUpdatesForRecipe(recipe, inventory);
+        }
+        await applyInventoryUpdates(userId, updates);
         notify('Inventory updated.');
-        setFinishPromptDismissed(true);
       } catch {
         notify('Could not update inventory.');
       }
-    } else {
-      setFinishPromptDismissed(true);
     }
+    setFinishPromptDismissed(true);
   }, [userId, recipe]);
 
   return (

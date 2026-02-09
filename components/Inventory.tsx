@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { InventoryItem, ShoppingListItem } from '../types';
 import { getInventory, addInventoryItems, addInventoryItem, removeInventoryItem, getShoppingList, addShoppingListItems, removeShoppingListItem } from '../services/dbService';
-import { parseGroceryListFromText, parseGroceryListFromImage } from '../services/geminiService';
+import { parseGroceryListFromText, parseGroceryListFromImage, normalizeIngredients } from '../services/geminiService';
+import { toShortIngredientName } from '../services/shoppingListService';
 
 interface InventoryProps {
   userId: string;
@@ -84,10 +85,17 @@ const Inventory: React.FC<InventoryProps> = ({ userId, initialTab }) => {
       setIsProcessing(true);
       setError(null);
       try {
-        const added = await addInventoryItems(
-          userId,
-          parsed.map((p) => ({ name: p.name.trim(), quantity: p.quantity?.trim() || undefined }))
-        );
+        const lines = parsed.map((p) => [p.quantity?.trim(), p.name.trim()].filter(Boolean).join(' ') || p.name.trim());
+        let items: { name: string; quantity?: string }[];
+        try {
+          items = await normalizeIngredients(lines);
+        } catch {
+          items = parsed.map((p) => ({
+            name: toShortIngredientName(p.name) || p.name.trim(),
+            quantity: p.quantity?.trim() || undefined,
+          }));
+        }
+        const added = await addInventoryItems(userId, items);
         setItems((prev) => {
           const updatedIds = new Set(added.map((a) => a.id));
           const rest = prev.filter((i) => !updatedIds.has(i.id));
@@ -108,10 +116,17 @@ const Inventory: React.FC<InventoryProps> = ({ userId, initialTab }) => {
       setIsProcessing(true);
       setError(null);
       try {
-        await addShoppingListItems(
-          userId,
-          parsed.map((p) => ({ name: p.name.trim(), quantity: p.quantity?.trim() || undefined }))
-        );
+        const lines = parsed.map((p) => [p.quantity?.trim(), p.name.trim()].filter(Boolean).join(' ') || p.name.trim());
+        let items: { name: string; quantity?: string }[];
+        try {
+          items = await normalizeIngredients(lines);
+        } catch {
+          items = parsed.map((p) => ({
+            name: toShortIngredientName(p.name) || p.name.trim(),
+            quantity: p.quantity?.trim() || undefined,
+          }));
+        }
+        await addShoppingListItems(userId, items);
         const list = await getShoppingList(userId);
         setShoppingList(list);
       } catch (err) {
@@ -261,7 +276,10 @@ const Inventory: React.FC<InventoryProps> = ({ userId, initialTab }) => {
     try {
       await addInventoryItems(
         userId,
-        selected.map((i) => ({ name: i.name, quantity: i.quantity }))
+        selected.map((i) => ({
+          name: toShortIngredientName(i.name) || i.name,
+          quantity: i.quantity,
+        }))
       );
       for (const item of selected) {
         await removeShoppingListItem(userId, item.id);

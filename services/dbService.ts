@@ -210,12 +210,13 @@ export const updateInventoryItem = async (userId: string, itemId: string, update
 };
 
 /**
- * When the user has finished cooking the recipe, subtract used ingredient quantities from inventory.
- * Reduces each matched item's quantity by the amount used; removes the item if quantity goes to zero or below.
+ * Apply precomputed inventory updates (e.g. from Gemini or getInventoryUpdatesForRecipe).
+ * Each update: { itemId, newQuantity }; newQuantity null means remove the item.
  */
-export const subtractRecipeIngredientsFromInventory = async (userId: string, recipe: Recipe): Promise<void> => {
-  const inventory = await getInventory(userId);
-  const updates = getInventoryUpdatesForRecipe(recipe, inventory);
+export const applyInventoryUpdates = async (
+  userId: string,
+  updates: { itemId: string; newQuantity: string | null }[]
+): Promise<void> => {
   for (const { itemId, newQuantity } of updates) {
     if (newQuantity === null) {
       await removeInventoryItem(userId, itemId);
@@ -223,6 +224,16 @@ export const subtractRecipeIngredientsFromInventory = async (userId: string, rec
       await updateInventoryItem(userId, itemId, { quantity: newQuantity });
     }
   }
+};
+
+/**
+ * When the user has finished cooking the recipe, subtract used ingredient quantities from inventory.
+ * Reduces each matched item's quantity by the amount used; removes the item if quantity goes to zero or below.
+ */
+export const subtractRecipeIngredientsFromInventory = async (userId: string, recipe: Recipe): Promise<void> => {
+  const inventory = await getInventory(userId);
+  const updates = getInventoryUpdatesForRecipe(recipe, inventory);
+  await applyInventoryUpdates(userId, updates);
 };
 
 /** Shopping list: users/{userId}/shoppingList/{itemId} */

@@ -17,7 +17,8 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { DEFAULT_RECIPE_IMAGE, MOCK_RECIPES } from './constants';
 import { getAllRecipes, getAppSettings, saveAppSettings, getPreferences, savePreferences, updateRecipeInDB, deleteRecipeInDB, getInventory, addShoppingListItems } from './services/dbService';
 import { createShare, getSharedRecipe } from './services/shareService';
-import { getMissingIngredientsForRecipe } from './services/shoppingListService';
+import { getMissingIngredientLines, getMissingIngredientsForRecipe } from './services/shoppingListService';
+import { normalizeIngredients } from './services/geminiService';
 import { getSuggestedRecipes } from './services/suggestionsService';
 import { subscribeToAuthState } from './services/authService';
 import { checkBackendHealth } from './services/backendHealthService';
@@ -688,18 +689,26 @@ const App: React.FC = () => {
     setShowShoppingListPrompt(false);
     try {
       const inventory = await getInventory(authUser.uid);
-      const missing = getMissingIngredientsForRecipe(selectedRecipe, inventory);
-      if (missing.length === 0) {
+      const missingLines = getMissingIngredientLines(selectedRecipe, inventory);
+      if (missingLines.length === 0) {
         setShoppingListToast('You have all ingredients in your inventory.');
         setTimeout(() => setShoppingListToast(null), 4000);
       } else {
-        await addShoppingListItems(authUser.uid, missing.map((m) => ({
-          name: m.name,
-          quantity: m.quantity,
-          sourceRecipeId: selectedRecipe.id,
-          sourceRecipeTitle: selectedRecipe.title,
-        })));
-        setShowShoppingListPrompt(true);
+        let items: { name: string; quantity?: string }[];
+        try {
+          items = await normalizeIngredients(missingLines);
+        } catch {
+          items = getMissingIngredientsForRecipe(selectedRecipe, inventory);
+        }
+        if (items.length > 0) {
+          await addShoppingListItems(authUser.uid, items.map((m) => ({
+            name: m.name,
+            quantity: m.quantity,
+            sourceRecipeId: selectedRecipe.id,
+            sourceRecipeTitle: selectedRecipe.title,
+          })));
+          setShowShoppingListPrompt(true);
+        }
       }
     } catch {
       setShoppingListToast("Couldn't add to your list. Try again?");

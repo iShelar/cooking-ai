@@ -131,6 +131,22 @@ class RecipeFromYouTubeRequest(BaseModel):
     alternatives: Optional[List[str]] = None
 
 
+class NormalizeIngredientsRequest(BaseModel):
+    """Ingredient lines from a recipe or list (e.g. "2 cloves garlic, minced", "fresh basil leaves")."""
+    ingredients: List[str]
+
+
+class InventoryItemForDeduction(BaseModel):
+    id: str
+    name: str
+    quantity: Optional[str] = None
+
+
+class InventoryUpdatesForRecipeRequest(BaseModel):
+    recipe_ingredients: List[str]
+    inventory: List[InventoryItemForDeduction]
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -250,6 +266,140 @@ async def parse_grocery_image(req: ParseGroceryImageRequest):
             return json.loads(cleaned)
         except json.JSONDecodeError:
             return []
+    except Exception as e:
+        if _is_rate_limit_error(e):
+            return JSONResponse(status_code=429, content={"error": RATE_LIMIT_MESSAGE})
+        raise
+
+
+@router.post("/normalize-ingredients")
+async def normalize_ingredients(req: NormalizeIngredientsRequest):
+    """Use Gemini to turn long recipe/ingredient lines into short name + quantity for shopping/inventory lists.
+    Returns [ { name: string, quantity?: string }, ... ] with canonical short names (e.g. 'basil', 'olive oil')."""
+    if not req.ingredients:
+        return []
+    try:
+        client = _get_client()
+        lines = "\n".join(f"- {s.strip()}" for s in req.ingredients if (s and isinstance(s, str)))
+        if not lines.strip():
+            return []
+
+        prompt = (
+            "You are normalizing recipe or grocery ingredient lines into a short, user-friendly form for "
+            "a shopping list and pantry inventory. For each line, output exactly one item with:\n"
+            '- "name": a SHORT canonical name (e.g. "basil", "garlic", "olive oil", "flour", "eggs"). '
+            "Drop modifiers like 'fresh', 'dried', 'minced', 'extra-virgin' unless they change the product (e.g. keep 'olive oil'). "
+            "Use common grocery names so the same ingredient always maps to the same short name.\n"
+            '- "quantity": keep the amount/unit if present (e.g. "2 cloves", "100g", "1 cup"); omit or empty string if not specified.\n\n'
+            f"Input lines (one per bullet):\n{lines}\n\n"
+            "Return a JSON array of objects, one per input line, in the same order. Each object: { \"name\": string, \"quantity\": string or \"\" }."
+        )
+
+        response = await _generate_with_fallback(
+            client,
+            prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema={
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "name": {"type": "STRING"},
+                            "quantity": {"type": "STRING"},
+                        },
+                        "required": ["name"],
+                    },
+                },
+            ),
+        )
+        raw_out = response.text or "[]"
+        out = json.loads(raw_out)
+        if not isinstance(out, list):
+            return []
+        result = []
+        for i, entry in enumerate(out):
+            if not isinstance(entry, dict):
+                continue
+            name = (entry.get("name") or "").strip()
+            if not name and i < len(req.ingredients):
+                name = str(req.ingredients[i]).strip()
+            qty = entry.get("quantity")
+            result.append({
+                "name": name or "ingredient",
+                "quantity": (qty.strip() if isinstance(qty, str) and qty.strip() else None),
+            })
+        return result
+    except Exception as e:
+        if _is_rate_limit_error(e):
+            return JSONResponse(status_code=429, content={"error": RATE_LIMIT_MESSAGE})
+        raise
+
+
+@router.post("/inventory-updates-for-recipe")
+async def inventory_updates_for_recipe(req: InventoryUpdatesForRecipeRequest):
+    """Use Gemini to decide how to deduct recipe ingredients from the user's inventory.
+    Returns [ { itemId: string, newQuantity: string | null }, ... ]. null means remove the item."""
+    if not req.recipe_ingredients or not req.inventory:
+        return []
+    try:
+        client = _get_client()
+        inv_lines = "\n".join(
+            f"- id={item.id} name={item.name!r} quantity={item.quantity or '—'}"
+            for item in req.inventory
+        )
+        ing_lines = "\n".join(f"- {s.strip()}" for s in req.recipe_ingredients if (s and isinstance(s, str)))
+
+        prompt = (
+            "The user just finished cooking a recipe. Match each recipe ingredient line to at most one inventory item "
+            "(by reasoning about names: e.g. 'fresh basil' matches 'basil', '2% milk' matches 'milk'). "
+            "For each inventory item that was used, compute the new quantity after subtracting what the recipe used. "
+            "If the result is zero or negative, return newQuantity as null (item should be removed). "
+            "Return ONLY updates for inventory items that were actually used; do not include items that were not used.\n\n"
+            "Inventory (id, name, quantity):\n"
+            f"{inv_lines}\n\n"
+            "Recipe ingredients used:\n"
+            f"{ing_lines}\n\n"
+            "Output a JSON array of objects: { \"itemId\": string, \"newQuantity\": string | null }. "
+            "itemId must be one of the ids from the inventory list. newQuantity is the remaining amount (e.g. \"200g\", \"2\") or null to remove."
+        )
+
+        response = await _generate_with_fallback(
+            client,
+            prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema={
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "itemId": {"type": "STRING"},
+                            "newQuantity": {"type": "STRING", "nullable": True},
+                        },
+                        "required": ["itemId", "newQuantity"],
+                    },
+                },
+            ),
+        )
+        raw_out = response.text or "[]"
+        out = json.loads(raw_out)
+        if not isinstance(out, list):
+            return []
+        inv_ids = {item.id for item in req.inventory}
+        result = []
+        for entry in out:
+            if not isinstance(entry, dict):
+                continue
+            item_id = entry.get("itemId")
+            if item_id not in inv_ids:
+                continue
+            new_qty = entry.get("newQuantity")
+            if new_qty is None or (isinstance(new_qty, str) and new_qty.strip().lower() in ("null", "none", "")):
+                result.append({"itemId": item_id, "newQuantity": None})
+            else:
+                result.append({"itemId": item_id, "newQuantity": str(new_qty).strip()})
+        return result
     except Exception as e:
         if _is_rate_limit_error(e):
             return JSONResponse(status_code=429, content={"error": RATE_LIMIT_MESSAGE})
