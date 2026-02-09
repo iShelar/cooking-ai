@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Recipe, AppSettings, DEFAULT_APP_SETTINGS, VOICE_LANGUAGE_OPTIONS } from '../types';
-import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration } from '@google/genai';
-import { decode, encode, decodeAudioData } from '../services/geminiService';
+import { Type } from '@google/genai';
+import { decodeAudioData } from '../services/geminiService';
 import { subtractRecipeIngredientsFromInventory } from '../services/dbService';
 import { resampleTo16k, float32ToInt16Pcm, BATCH_SAMPLES_16K } from '../services/voiceAudioUtils';
 
@@ -121,7 +121,7 @@ const CookingMode: React.FC<CookingModeProps> = ({ recipe, onExit, appSettings: 
   const inputAudioContextRef = useRef<AudioContext | null>(null);
   const nextStartTimeRef = useRef<number>(0);
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
-  const audioQueueRef = useRef<string[]>([]);
+  const audioQueueRef = useRef<Uint8Array[]>([]);
   const audioProcessingRef = useRef(false);
   const sessionRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -354,12 +354,15 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
   };
 
   const syncStepContextToAssistant = useCallback((stepIndex: number) => {
-    if (sessionRef.current && isListening) {
+    const ws = sessionRef.current as WebSocket | null;
+    if (ws && isListening && ws.readyState === WebSocket.OPEN) {
       try {
-        sessionRef.current.sendClientContent({
-          turns: getCurrentStepContext(stepIndex),
-          turnComplete: false
-        });
+        ws.send(JSON.stringify({
+          clientContent: {
+            turns: getCurrentStepContext(stepIndex),
+            turnComplete: false
+          }
+        }));
       } catch (_) {}
     }
   }, [isListening, getCurrentStepContext]);
@@ -532,7 +535,7 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
     if (!raw) return;
     audioProcessingRef.current = true;
     try {
-      const buffer = await decodeAudioData(decode(raw), ctx, 24000, 1);
+      const buffer = await decodeAudioData(raw, ctx, 24000, 1);
       nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
       const source = ctx.createBufferSource();
       source.buffer = buffer;
@@ -550,7 +553,7 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
     processAudioQueue();
   }, [appSettings.voiceSpeed]);
 
-  const tools: FunctionDeclaration[] = [
+  const tools = [
     {
       name: 'startTimer',
       parameters: {
@@ -628,7 +631,7 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
     }
   ];
 
-  const handleLiveMessage = useCallback(async (message: LiveServerMessage) => {
+  const handleLiveMessage = useCallback(async (message: any) => {
     // Process tool calls first so the step indicator and UI update immediately, before audio.
     if (message.toolCall) {
       for (const fc of message.toolCall.functionCalls) {
@@ -696,22 +699,21 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
           }
         }
 
-        if (sessionRef.current) {
+        // Send tool response back through WebSocket
+        const ws = sessionRef.current as WebSocket | null;
+        if (ws && ws.readyState === WebSocket.OPEN) {
           try {
-            sessionRef.current.sendToolResponse({
-              functionResponses: { id: fc.id, name: fc.name, response: { result: "ok" } }
-            });
+            ws.send(JSON.stringify({
+              toolResponse: {
+                functionResponses: { id: fc.id, name: fc.name, response: { result: "ok" } }
+              }
+            }));
           } catch (_) {}
         }
       }
     }
 
-    const audioData = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
-    if (audioData && audioContextRef.current && audioSourceRef.current !== 'video') {
-      setIsAssistantSpeaking(true);
-      audioQueueRef.current.push(audioData);
-      processAudioQueue();
-    }
+    // Audio is now received as binary WebSocket messages (handled in ws.onmessage), not here.
 
     if (message.serverContent?.outputTranscription) {
       const text = (message.serverContent.outputTranscription.text ?? '').trim();
@@ -751,7 +753,6 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
         notify("Voice not supported");
         return;
       }
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       if (!audioContextRef.current) audioContextRef.current = new AudioContext({ sampleRate: 24000, latencyHint: 'interactive' });
       if (!inputAudioContextRef.current) inputAudioContextRef.current = new AudioContext({ latencyHint: 'interactive' });
       await audioContextRef.current.resume?.();
@@ -770,99 +771,20 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
       const inputCtx = inputAudioContextRef.current;
       const inputRate = inputCtx.sampleRate;
 
-      const sessionPromise = ai.live.connect({
-        model: 'gemini-2.5-flash-native-audio-preview-12-2025',
-        callbacks: {
-          onopen: () => {
-            setIsListening(true);
-            sessionPromise.then(async (session) => {
-              sessionRef.current = session;
-              try {
-                session.sendClientContent({
-                  turns: getCurrentStepContext(currentStepRef.current),
-                  turnComplete: false
-                });
-              } catch (_) {}
-              const source = inputCtx.createMediaStreamSource(stream);
-              inputSourceRef.current = source;
-              let lastVolumeUpdate = 0;
-              const VOLUME_UPDATE_INTERVAL_MS = 80;
+      // Connect to the Python backend via WebSocket (proxied by Vite in dev)
+      const wsBase = (import.meta.env.VITE_LIVE_WS_URL as string) || window.location.origin;
+      const wsUrl = wsBase.replace(/^http/, 'ws') + '/ws';
+      const ws = new WebSocket(wsUrl);
+      ws.binaryType = 'arraybuffer';
 
-              const flushBatch = (batch: number[], s: typeof sessionRef.current) => {
-                if (!s || s !== sessionRef.current) return;
-                while (batch.length >= BATCH_SAMPLES_16K) {
-                  const chunk = batch.splice(0, BATCH_SAMPLES_16K);
-                  const float32 = new Float32Array(chunk);
-                  const pcm = float32ToInt16Pcm(float32);
-                  const pcmBlob = { data: encode(pcm), mimeType: 'audio/pcm;rate=16000' };
-                  try {
-                    s.sendRealtimeInput({ media: pcmBlob });
-                  } catch (_) {}
-                }
-              };
-
-              try {
-                await inputCtx.audioWorklet.addModule('/mic-worklet.js');
-                const workletNode = new AudioWorkletNode(inputCtx, 'mic-worklet-processor', {
-                  processorOptions: { sampleRate: inputRate },
-                  numberOfInputs: 1,
-                  numberOfOutputs: 1
-                });
-                inputNodeRef.current = workletNode;
-                const batch: number[] = [];
-                workletNode.port.onmessage = (event: MessageEvent<{ samples: Float32Array; sampleRate: number }>) => {
-                  const { samples, sampleRate } = event.data;
-                  const rms = Math.sqrt(samples.reduce((s, x) => s + x * x, 0) / samples.length);
-                  const now = Date.now();
-                  if (now - lastVolumeUpdate >= VOLUME_UPDATE_INTERVAL_MS) {
-                    lastVolumeUpdate = now;
-                    setInputVolume(rms);
-                  }
-                  const resampled = resampleTo16k(samples, sampleRate);
-                  for (let i = 0; i < resampled.length; i++) batch.push(resampled[i]);
-                  flushBatch(batch, sessionRef.current);
-                };
-                source.connect(workletNode);
-                workletNode.connect(inputCtx.destination);
-              } catch {
-                const processor = inputCtx.createScriptProcessor(4096, 1, 1);
-                inputNodeRef.current = processor;
-                const batch: number[] = [];
-                processor.onaudioprocess = (e) => {
-                  const input = e.inputBuffer.getChannelData(0);
-                  let sum = 0;
-                  for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
-                  const rms = Math.sqrt(sum / input.length);
-                  const now = Date.now();
-                  if (now - lastVolumeUpdate >= VOLUME_UPDATE_INTERVAL_MS) {
-                    lastVolumeUpdate = now;
-                    setInputVolume(rms);
-                  }
-                  const s = sessionRef.current;
-                  if (!s) return;
-                  const resampled = resampleTo16k(new Float32Array(input), inputRate);
-                  for (let i = 0; i < resampled.length; i++) batch.push(resampled[i]);
-                  flushBatch(batch, s);
-                };
-                source.connect(processor);
-                processor.connect(inputCtx.destination);
-              }
-            });
-          },
-          onmessage: handleLiveMessage,
-          onerror: (e) => console.error(e),
-          onclose: () => {
-            sessionRef.current = null;
-            setIsListening(false);
-            setIsAssistantSpeaking(false);
-            setInputVolume(0);
-          },
-        },
-        config: {
-          responseModalities: [Modality.AUDIO],
-          tools: [{ functionDeclarations: tools }],
-          contextWindowCompression: { slidingWindow: {} },
-          systemInstruction: `You are the CookAI Assistant for "${recipe.title}". 
+      ws.onopen = () => {
+        // 1. Send setup config as first message
+        ws.send(JSON.stringify({
+          setup: {
+            responseModalities: ['AUDIO'],
+            tools: [{ functionDeclarations: tools }],
+            contextWindowCompression: { slidingWindow: {} },
+            systemInstruction: `You are the CookAI Assistant for "${recipe.title}". 
           
           LANGUAGE: The user may speak in any language or mix (e.g. English, Hindi, Marathi, "step 7", "payari saat", "7th step vr chal"). ALWAYS interpret intent and act—never ignore or stay silent. Recognize numbers in any form (7, seven, saat, सात, etc.) as step numbers. Your responses and all speech must be ONLY in ${VOICE_LANGUAGE_OPTIONS.find((o) => o.code === appSettings.voiceLanguage)?.label ?? 'English'}. Recipe steps and UI are in English.
           
@@ -900,10 +822,118 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
           10. ALWAYS respond to voice input. Never stay silent. If the user said something that sounds like a step number or "step" in any language, call goToStep(index) and confirm. If you heard a number, use it (1-based step → 0-based index = number minus 1).
           
           FINISHING THE RECIPE: When the user says they have finished cooking (e.g. "I'm done", "we're finished", "recipe complete", "all done", "finished"), call finishRecipe() once. Confirm briefly (e.g. "Done! I've updated your inventory.") then the app will exit cooking mode.`,
-          outputAudioTranscription: {},
+            outputAudioTranscription: {},
+          }
+        }));
+
+        // 2. Mark as listening and store WebSocket as session
+        setIsListening(true);
+        sessionRef.current = ws;
+
+        // 3. Send initial step context
+        try {
+          ws.send(JSON.stringify({
+            clientContent: {
+              turns: getCurrentStepContext(currentStepRef.current),
+              turnComplete: false
+            }
+          }));
+        } catch (_) {}
+
+        // 4. Set up audio input pipeline
+        const source = inputCtx.createMediaStreamSource(stream);
+        inputSourceRef.current = source;
+        let lastVolumeUpdate = 0;
+        const VOLUME_UPDATE_INTERVAL_MS = 80;
+
+        const flushBatch = (batch: number[], wsRef: WebSocket | null) => {
+          if (!wsRef || wsRef !== sessionRef.current || wsRef.readyState !== WebSocket.OPEN) return;
+          while (batch.length >= BATCH_SAMPLES_16K) {
+            const chunk = batch.splice(0, BATCH_SAMPLES_16K);
+            const float32 = new Float32Array(chunk);
+            const pcm = float32ToInt16Pcm(float32);
+            try {
+              wsRef.send(pcm);
+            } catch (_) {}
+          }
+        };
+
+        // Try AudioWorklet, fall back to ScriptProcessor
+        (async () => {
+          try {
+            await inputCtx.audioWorklet.addModule('/mic-worklet.js');
+            const workletNode = new AudioWorkletNode(inputCtx, 'mic-worklet-processor', {
+              processorOptions: { sampleRate: inputRate },
+              numberOfInputs: 1,
+              numberOfOutputs: 1
+            });
+            inputNodeRef.current = workletNode;
+            const batch: number[] = [];
+            workletNode.port.onmessage = (event: MessageEvent<{ samples: Float32Array; sampleRate: number }>) => {
+              const { samples, sampleRate } = event.data;
+              const rms = Math.sqrt(samples.reduce((s, x) => s + x * x, 0) / samples.length);
+              const now = Date.now();
+              if (now - lastVolumeUpdate >= VOLUME_UPDATE_INTERVAL_MS) {
+                lastVolumeUpdate = now;
+                setInputVolume(rms);
+              }
+              const resampled = resampleTo16k(samples, sampleRate);
+              for (let i = 0; i < resampled.length; i++) batch.push(resampled[i]);
+              flushBatch(batch, sessionRef.current);
+            };
+            source.connect(workletNode);
+            workletNode.connect(inputCtx.destination);
+          } catch {
+            const processor = inputCtx.createScriptProcessor(4096, 1, 1);
+            inputNodeRef.current = processor;
+            const batch: number[] = [];
+            processor.onaudioprocess = (e) => {
+              const input = e.inputBuffer.getChannelData(0);
+              let sum = 0;
+              for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
+              const rms = Math.sqrt(sum / input.length);
+              const now = Date.now();
+              if (now - lastVolumeUpdate >= VOLUME_UPDATE_INTERVAL_MS) {
+                lastVolumeUpdate = now;
+                setInputVolume(rms);
+              }
+              const resampled = resampleTo16k(new Float32Array(input), inputRate);
+              for (let i = 0; i < resampled.length; i++) batch.push(resampled[i]);
+              flushBatch(batch, sessionRef.current);
+            };
+            source.connect(processor);
+            processor.connect(inputCtx.destination);
+          }
+        })();
+      };
+
+      // Handle incoming messages: binary = audio, JSON = events
+      ws.onmessage = (event) => {
+        if (event.data instanceof ArrayBuffer) {
+          // Binary audio from Gemini — queue for playback
+          const audioBytes = new Uint8Array(event.data);
+          if (audioContextRef.current && audioSourceRef.current !== 'video') {
+            setIsAssistantSpeaking(true);
+            audioQueueRef.current.push(audioBytes);
+            processAudioQueue();
+          }
+        } else {
+          // JSON event (tool calls, transcriptions, etc.)
+          try {
+            const message = JSON.parse(event.data as string);
+            if (message.setupComplete) return; // Session ready signal, no action needed
+            handleLiveMessage(message);
+          } catch (_) {}
         }
-      });
-      sessionRef.current = await sessionPromise;
+      };
+
+      ws.onerror = (e) => console.error(e);
+      ws.onclose = () => {
+        sessionRef.current = null;
+        setIsListening(false);
+        setIsAssistantSpeaking(false);
+        setInputVolume(0);
+      };
     } catch (err) {
       console.error(err);
     }

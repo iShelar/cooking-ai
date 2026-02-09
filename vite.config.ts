@@ -10,7 +10,16 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 5173,
         host: 'localhost',
-        https: true,
+        https: true as any,
+        proxy: {
+          '/ws': {
+            target: 'http://localhost:8080',
+            ws: true,
+          },
+          '/api': {
+            target: 'http://localhost:8080',
+          },
+        },
       },
       plugins: [
         basicSsl(),

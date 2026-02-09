@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Recipe, AppSettings, DEFAULT_APP_SETTINGS, VOICE_LANGUAGE_OPTIONS } from '../types';
-import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration } from '@google/genai';
-import { decode, encode, decodeAudioData } from '../services/geminiService';
+import { Type } from '@google/genai';
+import { decodeAudioData } from '../services/geminiService';
 import { updateRecipeInDB } from '../services/dbService';
 
 interface RecipeSetupProps {
@@ -40,7 +40,7 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
   const inputAudioContextRef = useRef<AudioContext | null>(null);
   const nextStartTimeRef = useRef<number>(0);
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
-  const audioQueueRef = useRef<string[]>([]);
+  const audioQueueRef = useRef<Uint8Array[]>([]);
   const audioProcessingRef = useRef(false);
   const sessionRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -94,7 +94,7 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
     if (!raw) return;
     audioProcessingRef.current = true;
     try {
-      const buffer = await decodeAudioData(decode(raw), ctx, 24000, 1);
+      const buffer = await decodeAudioData(raw, ctx, 24000, 1);
       nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
       const source = ctx.createBufferSource();
       source.buffer = buffer;
@@ -131,7 +131,7 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
     setScaledIngredients(simplifiedScaling);
   };
 
-  const tools: FunctionDeclaration[] = [
+  const tools = [
     {
       name: 'updateRecipeQuantities',
       parameters: {
@@ -150,24 +150,23 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
     }
   ];
 
-  const handleLiveMessage = useCallback(async (message: LiveServerMessage) => {
-    const audioData = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
-    if (audioData && audioContextRef.current) {
-      setIsAssistantSpeaking(true);
-      audioQueueRef.current.push(audioData);
-      processAudioQueue();
-    }
+  const handleLiveMessage = useCallback(async (message: any) => {
+    // Audio is now received as binary WebSocket messages (handled in ws.onmessage), not here.
 
     if (message.toolCall) {
       for (const fc of message.toolCall.functionCalls) {
         if (fc.name === 'updateRecipeQuantities') {
           triggerUpdateRecipe(fc.args.servings as number, fc.args.ingredients as string[]);
         }
-        if (sessionRef.current) {
+        // Send tool response back through WebSocket
+        const ws = sessionRef.current as WebSocket | null;
+        if (ws && ws.readyState === WebSocket.OPEN) {
           try {
-            sessionRef.current.sendToolResponse({
-              functionResponses: { id: fc.id, name: fc.name, response: { result: "ok" } }
-            });
+            ws.send(JSON.stringify({
+              toolResponse: {
+                functionResponses: { id: fc.id, name: fc.name, response: { result: "ok" } }
+              }
+            }));
           } catch (_) {}
         }
       }
@@ -192,7 +191,6 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
     setAiText("Connecting to Chef AI...");
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       if (!audioContextRef.current) audioContextRef.current = new AudioContext({ sampleRate: 24000, latencyHint: 'interactive' });
       if (!inputAudioContextRef.current) inputAudioContextRef.current = new AudioContext({ sampleRate: 16000, latencyHint: 'interactive' });
       await audioContextRef.current.resume?.();
@@ -208,70 +206,19 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
       });
       streamRef.current = stream;
 
-      const sessionPromise = ai.live.connect({
-        model: 'gemini-2.5-flash-native-audio-preview-12-2025',
-        callbacks: {
-          onopen: () => {
-            setIsConnecting(false);
-            setIsListening(true);
-            const inputCtx = inputAudioContextRef.current;
-            const currentSessionPromise = sessionPromise;
-            if (!inputCtx || !streamRef.current) return;
-            const source = inputCtx.createMediaStreamSource(streamRef.current);
-            const processor = inputCtx.createScriptProcessor(2048, 1, 1);
-            inputSourceRef.current = source;
-            inputProcessorRef.current = processor;
+      // Connect to the Python backend via WebSocket (proxied by Vite in dev)
+      const wsBase = (import.meta.env.VITE_LIVE_WS_URL as string) || window.location.origin;
+      const wsUrl = wsBase.replace(/^http/, 'ws') + '/ws';
+      const ws = new WebSocket(wsUrl);
+      ws.binaryType = 'arraybuffer';
 
-            const NOISE_GATE = 0.006;
-            const HYSTERESIS = 12;
-            let quietCount = 0;
-
-            processor.onaudioprocess = (e) => {
-              if (!sessionRef.current) return;
-              const input = e.inputBuffer.getChannelData(0);
-              let sum = 0;
-              for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
-              const rms = Math.sqrt(sum / input.length);
-              setInputVolume(rms);
-
-              if (rms > NOISE_GATE) {
-                quietCount = 0;
-                const int16 = new Int16Array(input.length);
-                for (let i = 0; i < input.length; i++) int16[i] = input[i] * 32768;
-                const pcmBlob = { data: encode(new Uint8Array(int16.buffer)), mimeType: 'audio/pcm;rate=16000' };
-                currentSessionPromise.then(s => {
-                  if (sessionRef.current !== s) return;
-                  try { s?.sendRealtimeInput?.({ media: pcmBlob }); } catch (_) {}
-                }).catch(() => {});
-              } else if (quietCount < HYSTERESIS) {
-                quietCount++;
-                const int16 = new Int16Array(input.length);
-                for (let i = 0; i < input.length; i++) int16[i] = input[i] * 32768;
-                const pcmBlob = { data: encode(new Uint8Array(int16.buffer)), mimeType: 'audio/pcm;rate=16000' };
-                currentSessionPromise.then(s => {
-                  if (sessionRef.current !== s) return;
-                  try { s?.sendRealtimeInput?.({ media: pcmBlob }); } catch (_) {}
-                }).catch(() => {});
-              }
-            };
-            source.connect(processor);
-            processor.connect(inputCtx.destination);
-          },
-          onmessage: handleLiveMessage,
-          onerror: (e) => {
-            console.error(e);
-            setIsConnecting(false);
-          },
-          onclose: () => {
-            sessionRef.current = null;
-            setIsListening(false);
-            setIsConnecting(false);
-          },
-        },
-        config: {
-          responseModalities: [Modality.AUDIO],
-          tools: [{ functionDeclarations: tools }],
-          systemInstruction: `You are the CookAI Setup Assistant. 
+      ws.onopen = () => {
+        // 1. Send setup config as first message
+        ws.send(JSON.stringify({
+          setup: {
+            responseModalities: ['AUDIO'],
+            tools: [{ functionDeclarations: tools }],
+            systemInstruction: `You are the CookAI Setup Assistant. 
           The recipe is: ${recipe.title}, originally for ${recipe.servings} people.
           
           LANGUAGE: Always respond and speak only in ${VOICE_LANGUAGE_OPTIONS.find((o) => o.code === appSettings.voiceLanguage)?.label ?? 'English'}. Use no other language.
@@ -284,10 +231,81 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
           - Example: "Scaling the ingredients for 4 people now." or "Okay, updating quantities for 6."
           
           Keep responses under 10 words.`,
-          outputAudioTranscription: {},
+            outputAudioTranscription: {},
+          }
+        }));
+
+        // 2. Mark as listening and store WebSocket as session
+        setIsConnecting(false);
+        setIsListening(true);
+        sessionRef.current = ws;
+
+        // 3. Set up audio input pipeline
+        const inputCtx = inputAudioContextRef.current;
+        if (!inputCtx || !streamRef.current) return;
+        const source = inputCtx.createMediaStreamSource(streamRef.current);
+        const processor = inputCtx.createScriptProcessor(2048, 1, 1);
+        inputSourceRef.current = source;
+        inputProcessorRef.current = processor;
+
+        const NOISE_GATE = 0.006;
+        const HYSTERESIS = 12;
+        let quietCount = 0;
+
+        processor.onaudioprocess = (e) => {
+          const wsRef = sessionRef.current as WebSocket | null;
+          if (!wsRef || wsRef.readyState !== WebSocket.OPEN) return;
+          const input = e.inputBuffer.getChannelData(0);
+          let sum = 0;
+          for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
+          const rms = Math.sqrt(sum / input.length);
+          setInputVolume(rms);
+
+          if (rms > NOISE_GATE) {
+            quietCount = 0;
+            const int16 = new Int16Array(input.length);
+            for (let i = 0; i < input.length; i++) int16[i] = input[i] * 32768;
+            try { wsRef.send(new Uint8Array(int16.buffer)); } catch (_) {}
+          } else if (quietCount < HYSTERESIS) {
+            quietCount++;
+            const int16 = new Int16Array(input.length);
+            for (let i = 0; i < input.length; i++) int16[i] = input[i] * 32768;
+            try { wsRef.send(new Uint8Array(int16.buffer)); } catch (_) {}
+          }
+        };
+        source.connect(processor);
+        processor.connect(inputCtx.destination);
+      };
+
+      // Handle incoming messages: binary = audio, JSON = events
+      ws.onmessage = (event) => {
+        if (event.data instanceof ArrayBuffer) {
+          // Binary audio from Gemini — queue for playback
+          const audioBytes = new Uint8Array(event.data);
+          if (audioContextRef.current) {
+            setIsAssistantSpeaking(true);
+            audioQueueRef.current.push(audioBytes);
+            processAudioQueue();
+          }
+        } else {
+          // JSON event (tool calls, transcriptions, etc.)
+          try {
+            const message = JSON.parse(event.data as string);
+            if (message.setupComplete) return; // Session ready signal
+            handleLiveMessage(message);
+          } catch (_) {}
         }
-      });
-      sessionRef.current = await sessionPromise;
+      };
+
+      ws.onerror = (e) => {
+        console.error(e);
+        setIsConnecting(false);
+      };
+      ws.onclose = () => {
+        sessionRef.current = null;
+        setIsListening(false);
+        setIsConnecting(false);
+      };
     } catch (err) {
       console.error(err);
       setIsConnecting(false);

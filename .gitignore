@@ -26,3 +26,9 @@ dist-ssr
 # Firebase / Google service account keys (never commit)
 *-firebase-adminsdk-*.json
 serviceAccount*.json
+
+# Python (server/)
+__pycache__/
+*.pyc
+server/venv/
+server/.env
