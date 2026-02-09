@@ -1,9 +1,19 @@
 [build]
   publish = "dist"
 
-# All backend endpoints (API, share preview, meal reminders) are handled
-# by the Python backend (server/). In production, proxy /api/*, /ws, and
-# /share/* to the backend server.
+# Proxy API calls to Python backend on Render
+[[redirects]]
+  from = "/api/*"
+  to = "https://cookai-backend.onrender.com/api/:splat"
+  status = 200
+  force = true
+
+# Proxy share preview to Python backend
+[[redirects]]
+  from = "/share/*"
+  to = "https://cookai-backend.onrender.com/share/:splat"
+  status = 200
+  force = true
 
 # SPA: serve index.html for all other routes
 [[redirects]]
