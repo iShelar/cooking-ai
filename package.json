@@ -11,9 +11,7 @@
     "generate-pwa-icons": "node scripts/generate-pwa-icons.mjs"
   },
   "dependencies": {
-    "@netlify/functions": "^2.8.0",
     "firebase": "^12.8.0",
-    "firebase-admin": "^13.0.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
   },

@@ -27,6 +27,9 @@ dist-ssr
 *-firebase-adminsdk-*.json
 serviceAccount*.json
 
+# Generated service worker (contains Firebase config from env vars, regenerated at build time)
+public/firebase-messaging-sw.js
+
 # Python (server/)
 __pycache__/
 *.pyc

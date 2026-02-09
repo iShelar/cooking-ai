@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 from gemini_live import GeminiLive
 from gemini_api import router as api_router
 from share_preview import router as share_router
+from meal_reminder import router as meal_reminder_router
 from auth import verify_ws_token
 
 # ---------------------------------------------------------------------------
@@ -62,6 +63,9 @@ app.include_router(api_router)
 
 # Include share preview route (OG meta tags for social crawlers)
 app.include_router(share_router)
+
+# Include meal reminder route (manual trigger for testing + cron)
+app.include_router(meal_reminder_router)
 
 
 @app.get("/api/health")

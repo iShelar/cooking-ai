@@ -1,9 +1,9 @@
 [build]
   publish = "dist"
-  functions = "netlify/functions"
 
-# Share links are now handled by the Python backend (server/share_preview.py).
-# In production, proxy /share/* to the backend server.
+# All backend endpoints (API, share preview, meal reminders) are handled
+# by the Python backend (server/). In production, proxy /api/*, /ws, and
+# /share/* to the backend server.
 
 # SPA: serve index.html for all other routes
 [[redirects]]
