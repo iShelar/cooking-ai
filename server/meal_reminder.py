@@ -11,6 +11,7 @@ When deployed, call /api/meal-reminder/trigger via an external cron service
 """
 
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -19,6 +20,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from share_preview import _get_firestore  # reuse lazy Firestore init
+
+# Base URL of the frontend app (FCM Webpush link must be full HTTPS). Set APP_BASE_URL in server/.env.
+APP_BASE_URL = (os.getenv("APP_BASE_URL") or "").rstrip("/") or "https://cooking-ai.netlify.app"
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/meal-reminder")
@@ -102,7 +106,7 @@ async def _run_meal_reminders(override_utc_minutes: Optional[int] = None) -> dic
     Check all users with FCM tokens and send push notifications
     for any meal whose reminder window includes the current UTC time.
 
-    Returns { sent, errors, skipped }.
+    Returns { sent, errors, skipped, error_details }.
     """
     import firebase_admin
     from firebase_admin import messaging
@@ -120,6 +124,7 @@ async def _run_meal_reminders(override_utc_minutes: Optional[int] = None) -> dic
     sent = 0
     errors = 0
     skipped = 0
+    error_details: List[str] = []
 
     for doc_snap in subs_snap:
         data = doc_snap.to_dict() or {}
@@ -180,7 +185,7 @@ async def _run_meal_reminders(override_utc_minutes: Optional[int] = None) -> dic
             titles = _get_suggested_recipe_titles(recipes, liked_recipe_ids, inventory_names, 2)
             body = f"Suggested: {', '.join(titles)}" if titles else "Check your recipe suggestions."
 
-            # Send FCM push notification
+            # Send FCM push notification (link must be a full HTTPS URL)
             message = messaging.Message(
                 token=fcm_token,
                 notification=messaging.Notification(
@@ -188,7 +193,7 @@ async def _run_meal_reminders(override_utc_minutes: Optional[int] = None) -> dic
                     body=body,
                 ),
                 webpush=messaging.WebpushConfig(
-                    fcm_options=messaging.WebpushFCMOptions(link="/"),
+                    fcm_options=messaging.WebpushFCMOptions(link=f"{APP_BASE_URL}/"),
                 ),
                 data={"url": "/", "meal": meal_label},
             )
@@ -197,10 +202,12 @@ async def _run_meal_reminders(override_utc_minutes: Optional[int] = None) -> dic
             logger.info("Sent %s reminder to user %s", meal_label, user_id)
 
         except Exception as e:
+            err_msg = f"{user_id}: {e!s}"
             logger.error("meal-reminder: user %s — %s", user_id, e)
             errors += 1
+            error_details.append(err_msg)
 
-    return {"sent": sent, "errors": errors, "skipped": skipped}
+    return {"sent": sent, "errors": errors, "skipped": skipped, "error_details": error_details}
 
 
 # ---------------------------------------------------------------------------
