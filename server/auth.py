@@ -1,5 +1,5 @@
 """
-Firebase ID-token verification for CookAI backend.
+Firebase ID-token verification for Pakao backend.
 
 Verifies tokens using Google's public X.509 certificates.
 No Firebase Admin SDK or service account credentials required.

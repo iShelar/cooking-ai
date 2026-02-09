@@ -138,7 +138,7 @@ const Login: React.FC<LoginProps> = ({ onSuccess }) => {
       <div className="space-y-8">
         <header className="text-center space-y-4">
           <div className="flex flex-col items-center gap-3">
-            <h1 className="text-3xl font-bold text-stone-800 tracking-tight">First Dish</h1>
+            <h1 className="text-3xl font-bold text-stone-800 tracking-tight">Pakao</h1>
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-stone-100 text-stone-500 text-xs font-medium">
               <svg className="w-3.5 h-3.5 text-violet-500" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
                 <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />

@@ -1,5 +1,5 @@
 """
-CookAI REST API endpoints — proxies Gemini generative-AI calls
+Pakao REST API endpoints — proxies Gemini generative-AI calls
 so the API key stays on the server.
 """
 

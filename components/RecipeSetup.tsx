@@ -220,7 +220,7 @@ const RecipeSetup: React.FC<RecipeSetupProps> = ({ recipe, onComplete, onCancel,
           setup: {
             responseModalities: ['AUDIO'],
             tools: [{ functionDeclarations: tools }],
-            systemInstruction: `You are the CookAI Setup Assistant. 
+            systemInstruction: `You are the Pakao Setup Assistant. 
           The recipe is: ${recipe.title}, originally for ${recipe.servings} people.
           
           LANGUAGE: Always respond and speak only in ${VOICE_LANGUAGE_OPTIONS.find((o) => o.code === appSettings.voiceLanguage)?.label ?? 'English'}. Use no other language.

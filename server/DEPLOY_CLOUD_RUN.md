@@ -1,4 +1,4 @@
-# Deploy CookAI backend to Google Cloud Run
+# Deploy Pakao backend to Google Cloud Run
 
 Use this for **zero cold starts** (e.g. hackathon demos). Cloud Run with `min-instances: 1` keeps one instance always warm (~$5/month).
 

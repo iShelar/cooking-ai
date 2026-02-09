@@ -1,5 +1,5 @@
 """
-CookAI Live Server — FastAPI WebSocket proxy for Gemini Live API.
+Pakao Live Server — FastAPI WebSocket proxy for Gemini Live API.
 
 Runs as a standalone Python server. The Vite dev server proxies /ws to this.
 Start: cd server && python main.py
@@ -48,7 +48,7 @@ if not API_KEY:
 # FastAPI app
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="CookAI Live Server")
+app = FastAPI(title="Pakao Live Server")
 
 app.add_middleware(
     CORSMiddleware,
@@ -284,5 +284,5 @@ if __name__ == "__main__":
     import uvicorn
 
     port = int(os.getenv("PORT", "8080"))
-    logger.info(f"Starting CookAI Live Server on port {port}")
+    logger.info(f"Starting Pakao Live Server on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)

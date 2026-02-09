@@ -838,7 +838,7 @@ If they say "next" or "next step", you MUST call nextStep(). If they say "previo
             responseModalities: ['AUDIO'],
             tools: [{ functionDeclarations: tools }],
             contextWindowCompression: { slidingWindow: {} },
-            systemInstruction: `You are the CookAI Assistant for "${recipe.title}". 
+            systemInstruction: `You are the Pakao Assistant for "${recipe.title}". 
           
           LANGUAGE: The user may speak in any language or mix (e.g. English, Hindi, Marathi, "step 7", "payari saat", "7th step vr chal"). ALWAYS interpret intent and act—never ignore or stay silent. Recognize numbers in any form (7, seven, saat, सात, etc.) as step numbers. Your responses and all speech must be ONLY in ${VOICE_LANGUAGE_OPTIONS.find((o) => o.code === appSettings.voiceLanguage)?.label ?? 'English'}. Recipe steps and UI are in English.
           

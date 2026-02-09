@@ -1,6 +1,6 @@
 # For judges
 
-Quick instructions to run and demo **CookAI Assistant** for evaluation.
+Quick instructions to run and demo **Pakao** for evaluation.
 
 ## Prerequisites
 

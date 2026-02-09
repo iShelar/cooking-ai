@@ -1,4 +1,4 @@
-# CookAI backend — Google Cloud Run (min-instances: 1 for zero cold starts)
+# Pakao backend — Google Cloud Run (min-instances: 1 for zero cold starts)
 FROM python:3.11-slim
 
 WORKDIR /app

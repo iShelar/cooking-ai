@@ -47,7 +47,7 @@ firebase.initializeApp({
 });
 
 firebase.messaging().onBackgroundMessage(function(payload) {
-  var title = (payload.notification && payload.notification.title) ? payload.notification.title : 'CookAI';
+  var title = (payload.notification && payload.notification.title) ? payload.notification.title : 'Pakao';
   var options = {
     body: (payload.notification && payload.notification.body) ? payload.notification.body : '',
     icon: '/pwa-192x192.png',

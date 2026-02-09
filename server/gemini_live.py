@@ -1,7 +1,7 @@
 """
 GeminiLive: Async proxy between WebSocket clients and the Gemini Live API.
 
-Adapted from the Immergo reference implementation for CookAI.
+Adapted from the Immergo reference implementation for Pakao.
 Key difference: uses API-key auth (Google AI Studio) instead of Vertex AI.
 """
 
@@ -252,7 +252,7 @@ class GeminiLive:
                                         {"serverContent": {"interrupted": True}}
                                     )
 
-                            # Tool calls — all forwarded to the client (all tools are client-side in CookAI)
+                            # Tool calls — all forwarded to the client (all tools are client-side in Pakao)
                             if tool_call:
                                 client_tool_calls = []
                                 for fc in tool_call.function_calls:
