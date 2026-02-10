@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   fetchTimestampsForUrl,
   recipeFromTimestampResult,
@@ -13,6 +13,8 @@ interface CreateFromYouTubeProps {
   onPreferencesUpdated?: (prefs: UserPreferences) => void;
   onCreated: (recipe: Recipe) => void;
   onCancel: () => void;
+  /** Pre-fill URL when opened via Web Share Target (e.g. share from YouTube). */
+  initialUrl?: string;
 }
 
 type Step = "idle" | "fetching" | "creating" | "saving" | "success" | "error";
@@ -22,8 +24,12 @@ const CreateFromYouTube: React.FC<CreateFromYouTubeProps> = ({
   savedPreferences,
   onCreated,
   onCancel,
+  initialUrl = "",
 }) => {
-  const [url, setUrl] = useState("");
+  const [url, setUrl] = useState(initialUrl);
+  useEffect(() => {
+    if (initialUrl) setUrl(initialUrl);
+  }, [initialUrl]);
   const [dietaryChoice, setDietaryChoice] = useState<"use" | "skip">(
     savedPreferences && (savedPreferences.dietary?.length > 0 || savedPreferences.allergies?.length > 0) ? "use" : "skip"
   );

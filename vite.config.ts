@@ -44,6 +44,16 @@ export default defineConfig(({ mode }) => {
               { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
               { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
             ],
+            // Web Share Target: receive shares from YouTube, browser, etc. (PWA must be installed)
+            share_target: {
+              action: '/',
+              method: 'GET',
+              params: {
+                title: 'title',
+                text: 'text',
+                url: 'url',
+              },
+            },
           },
           workbox: {
             globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],

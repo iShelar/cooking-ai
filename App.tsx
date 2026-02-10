@@ -96,6 +96,8 @@ const App: React.FC = () => {
   const [shareLinkUrl, setShareLinkUrl] = useState<string | null>(null);
   /** Backend health: null = not checked yet, false = down, true = up. Used to show "Start the backend" banner. */
   const [backendUp, setBackendUp] = useState<boolean | null>(null);
+  /** URL received via Web Share Target (e.g. from YouTube share). When set, open CreateFromYouTube with this URL. */
+  const [sharedToAppUrl, setSharedToAppUrl] = useState<string | null>(null);
 
   // On first load, if URL is /share/TOKEN or ?share=TOKEN (Netlify function redirect), show shared recipe view.
   useEffect(() => {
@@ -108,6 +110,21 @@ const App: React.FC = () => {
     if (token) {
       setSharedRecipeToken(token);
       setCurrentView(AppView.SharedRecipe);
+      return;
+    }
+    // Web Share Target: ?url=...&title=...&text=... (Android often sends URL in text)
+    const shareUrl = params.get('url')?.trim() || null;
+    const shareText = params.get('text')?.trim() || '';
+    const shareTitle = params.get('title')?.trim() || '';
+    const ytRegex = /https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?[^\s]+|youtu\.be\/[^\s]+)/i;
+    const fromUrl = shareUrl && ytRegex.test(shareUrl) ? shareUrl : null;
+    const fromText = (shareText || shareTitle).match(ytRegex)?.[0] ?? null;
+    const youtubeUrl = fromUrl || fromText;
+    if (youtubeUrl) {
+      setSharedToAppUrl(youtubeUrl);
+      setCurrentView(AppView.CreateFromYouTube);
+      const cleanPath = path || '/';
+      window.history.replaceState({}, '', cleanPath);
     }
   }, []);
 
@@ -1569,11 +1586,15 @@ const App: React.FC = () => {
             userId={authUser.uid}
             savedPreferences={userPreferences}
             onPreferencesUpdated={setUserPreferences}
+            initialUrl={sharedToAppUrl ?? undefined}
             onCreated={(recipe) => {
               setRecipes((prev) => [...prev.filter((r) => r.id !== recipe.id), recipe]);
               replaceWith(AppView.RecipeDetail, recipe);
             }}
-            onCancel={() => window.history.back()}
+            onCancel={() => {
+              setSharedToAppUrl(null);
+              window.history.back();
+            }}
           />
         </ErrorBoundary>
       )}
