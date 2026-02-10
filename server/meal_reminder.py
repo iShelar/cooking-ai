@@ -23,7 +23,7 @@ from pydantic import BaseModel
 from share_preview import _get_firestore  # reuse lazy Firestore init
 
 # Base URL of the frontend app (FCM Webpush link must be full HTTPS). Set APP_BASE_URL in server/.env.
-APP_BASE_URL = (os.getenv("APP_BASE_URL") or "").rstrip("/") or "https://cooking-ai.netlify.app"
+APP_BASE_URL = (os.getenv("APP_BASE_URL") or "").rstrip("/") or "https://pakao-ai-gemini-3-hackathon.netlify.app"
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/meal-reminder")
